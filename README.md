@@ -2,7 +2,7 @@
 
 > **适用场景**：独角鲸云或其他商家的 NAT VPS、独立 IP 小鸡（64MB~512MB 内存）。  
 > **核心组合**：官方静态 `sing-box` (VLESS-REALITY-Vision) + 原生 `Perl 5` 极轻量动态流量订阅。  
-> **设计特点**：图文对照操作、终端问答式输入、自动探测 IP 与网卡、自动生成密钥、持久化保存变量、彻底解决“开着梯子更新订阅报错 `failed to fetch remote profile`”。
+> **设计特点**：图文对照操作、终端问答式输入、自动探测 IP 与网卡、自动生成密钥、持久化保存变量、防翻译插件篡改、彻底解决“开着梯子更新订阅报错 `failed to fetch remote profile`”。
 
 ---
 
@@ -170,7 +170,7 @@ TRAFFIC_GB=${INPUT_GB:-400}
 read -p "6. 之前已用过的流量(GB) [支持两位小数，新机直接回车填 0]: " INPUT_USED_GB
 USED_GB=${INPUT_USED_GB:-0}
 
-# === 直接照抄后台到期时间 ===
+# === 直接照抄后台到期时间（支持纯日期如 2026-10-17） ===
 read -p "7. 面板显示的到期时间 [格式示例: 2026-10-17 22:59:42]: " INPUT_DATE
 if [ -n "$INPUT_DATE" ]; then
     EXPIRE_TIME=$(date -d "$INPUT_DATE" +%s 2>/dev/null || echo "$(( $(date +%s) + 30 * 86400 ))")
@@ -226,7 +226,7 @@ bash /root/setup.sh
 
 ### 步骤三：一键部署核心节点与订阅服务
 
-整段复制并粘贴执行。代码会自动引用前面生成的变量，配置 sing-box、LoyalSoldier 规则集 YAML，并拉起 Perl 原生动态流量订阅服务：
+整段复制并粘贴执行。代码会自动引用前面生成的变量，配置 sing-box、标准免括号纯 IP DNS 的客户端 YAML，并拉起 Perl 原生动态流量订阅服务：
 
 ```bash
 source /opt/sing-box/my_env.sh
@@ -234,27 +234,44 @@ source /opt/sing-box/my_env.sh
 # 1. 写入 sing-box 节点配置（使用 0.0.0.0 避免容器缺 IPv6 导致报错）
 cat <<EOF> /opt/sing-box/config.json
 {
-  "log": { "level": "warn" },
+  "log": {
+    "level": "warn"
+  },
   "inbounds": [
     {
       "type": "vless",
       "tag": "vless-in",
       "listen": "0.0.0.0",
       "listen_port": ${NODE_PORT},
-      "users": [{ "uuid": "${UUID}", "flow": "xtls-rprx-vision" }],
+      "users": [
+        {
+          "uuid": "${UUID}",
+          "flow": "xtls-rprx-vision"
+        }
+      ],
       "tls": {
         "enabled": true,
         "server_name": "gateway.icloud.com",
         "reality": {
           "enabled": true,
-          "handshake": { "server": "gateway.icloud.com", "server_port": 443 },
+          "handshake": {
+            "server": "gateway.icloud.com",
+            "server_port": 443
+          },
           "private_key": "${PRIVATE_KEY}",
-          "short_id": ["${SHORT_ID}"]
+          "short_id": [
+            "${SHORT_ID}"
+          ]
         }
       }
     }
   ],
-  "outbounds": [{ "type": "direct", "tag": "direct" }]
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ]
 }
 EOF
 
@@ -280,7 +297,7 @@ systemctl daemon-reload
 systemctl enable --now sing-box
 systemctl restart sing-box
 
-# 3. 写入 LoyalSoldier 精细分流客户端 YAML（修复标准列表缩进与链接字符）
+# 3. 写入客户端 YAML（DNS 改用纯 IP 地址，绝不触发任何插件超链接与括号崩溃）
 cat <<EOF> /opt/sing-box/ui/index.html
 port: 7890
 socks-port: 7891
@@ -298,8 +315,8 @@ dns:
     - 223.5.5.5
     - 119.29.29.29
   fallback:
-    - [https://dns.google/dns-query](https://dns.google/dns-query)
-    - [https://1.1.1.1/dns-query](https://1.1.1.1/dns-query)
+    - 8.8.8.8
+    - 1.1.1.1
   fallback-filter:
     geoip: true
     geoip-code: CN
@@ -353,72 +370,17 @@ proxy-groups:
       - DIRECT
 
 rule-providers:
-  reject:
-    type: http
-    behavior: domain
-    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/reject.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/reject.txt)"
-    path: ./ruleset/reject.yaml
-    interval: 86400
-  icloud:
-    type: http
-    behavior: domain
-    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/icloud.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/icloud.txt)"
-    path: ./ruleset/icloud.yaml
-    interval: 86400
-  apple:
-    type: http
-    behavior: domain
-    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/apple.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/apple.txt)"
-    path: ./ruleset/apple.yaml
-    interval: 86400
-  google:
-    type: http
-    behavior: domain
-    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/google.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/google.txt)"
-    path: ./ruleset/google.yaml
-    interval: 86400
-  proxy:
-    type: http
-    behavior: domain
-    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/proxy.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/proxy.txt)"
-    path: ./ruleset/proxy.yaml
-    interval: 86400
-  direct:
-    type: http
-    behavior: domain
-    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/direct.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/direct.txt)"
-    path: ./ruleset/direct.yaml
-    interval: 86400
-  gfw:
-    type: http
-    behavior: domain
-    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/gfw.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/gfw.txt)"
-    path: ./ruleset/gfw.yaml
-    interval: 86400
-  tld-not-cn:
-    type: http
-    behavior: domain
-    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/tld-not-cn.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/tld-not-cn.txt)"
-    path: ./ruleset/tld-not-cn.yaml
-    interval: 86400
-  telegramcidr:
-    type: http
-    behavior: ipcidr
-    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/telegramcidr.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/telegramcidr.txt)"
-    path: ./ruleset/telegramcidr.yaml
-    interval: 86400
-  cncidr:
-    type: http
-    behavior: ipcidr
-    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/cncidr.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/cncidr.txt)"
-    path: ./ruleset/cncidr.yaml
-    interval: 86400
-  lancidr:
-    type: http
-    behavior: ipcidr
-    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt)"
-    path: ./ruleset/lancidr.yaml
-    interval: 86400
+  reject: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/reject.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/reject.txt)", path: ./ruleset/reject.yaml, interval: 86400 }
+  icloud: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/icloud.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/icloud.txt)", path: ./ruleset/icloud.yaml, interval: 86400 }
+  apple: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/apple.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/apple.txt)", path: ./ruleset/apple.yaml, interval: 86400 }
+  google: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/google.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/google.txt)", path: ./ruleset/google.yaml, interval: 86400 }
+  proxy: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/proxy.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/proxy.txt)", path: ./ruleset/proxy.yaml, interval: 86400 }
+  direct: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/direct.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/direct.txt)", path: ./ruleset/direct.yaml, interval: 86400 }
+  gfw: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/gfw.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/gfw.txt)", path: ./ruleset/gfw.yaml, interval: 86400 }
+  tld-not-cn: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/tld-not-cn.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/tld-not-cn.txt)", path: ./ruleset/tld-not-cn.yaml, interval: 86400 }
+  telegramcidr: { type: http, behavior: ipcidr, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/telegramcidr.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/telegramcidr.txt)", path: ./ruleset/telegramcidr.yaml, interval: 86400 }
+  cncidr: { type: http, behavior: ipcidr, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/cncidr.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/cncidr.txt)", path: ./ruleset/cncidr.yaml, interval: 86400 }
+  lancidr: { type: http, behavior: ipcidr, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt)", path: ./ruleset/lancidr.yaml, interval: 86400 }
 
 rules:
   - RULE-SET,lancidr,DIRECT,no-resolve
