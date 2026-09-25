@@ -140,7 +140,8 @@ cat <<'SH_EOF' > /root/setup.sh
 clear
 mkdir -p /opt/sing-box/ui /opt/sing-box/backup
 
-DETECT_IP=$(curl -s4m 5 [https://api.ipify.org](https://api.ipify.org) || echo "")
+# 纯文本探测 IP，避免任何误转超链接报错
+DETECT_IP=$(curl -s4m 5 "[http://api4.ipify.org](http://api4.ipify.org)" || curl -s4m 5 "[http://icanhazip.com](http://icanhazip.com)" || echo "")
 echo "========================================================"
 echo "          独角鲸云 NAT VPS 智能参数配置引导            "
 echo "========================================================"
