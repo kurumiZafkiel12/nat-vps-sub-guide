@@ -3,7 +3,7 @@
 > **适用场景**：独角鲸云、碳云、微基主机等所有 NAT VPS 商家及普通独立 IP VPS。  
 > **支持架构**：x86_64 (amd64) / aarch64 (arm64)，系统推荐 Debian 11/12/13 或 Ubuntu。  
 > **核心组合**：官方静态 `sing-box` (VLESS-REALITY-Vision) + 原生 `Perl 5` 极轻量动态流量订阅。  
-> **设计特点**：图文步骤完整、参数逐项交互可控、支持内外端口分离映射、完全免疫浏览器翻译插件对 URL 的篡改，彻底解决 Web 终端粘贴卡回车问题。
+> **设计特点**：图文步骤完整、参数逐项交互可控、支持内外端口分离映射、指令彻底规避 Web 终端截断与换行卡死。
 
 ---
 
@@ -97,10 +97,10 @@
 
 ### 步骤一：安装基础工具与 sing-box 校验
 
-整段复制并粘贴执行。这里采用 `bash -c` 封装，粘贴瞬间就会由子进程接管执行，即使末尾换行被浏览器吞掉，也会立刻跑完并打印成功提示：
+将安装逻辑写入独立脚本执行，彻底避开 Web 终端多行粘贴截断问题：
 
 ```bash
-bash -c '
+cat << 'EOF' > /tmp/step1.sh
 export DEBIAN_FRONTEND=noninteractive
 apt update -y && apt install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" curl perl openssl procps jq bc
 
@@ -133,17 +133,18 @@ else
     echo "[ERROR] Download failed! Please check your network."
     exit 1
 fi
-'
+EOF
+bash /tmp/step1.sh
 ```
 
 ---
 
 ### 步骤二：参数交互引导与变量持久化
 
-整段复制并粘贴执行。直接拉起交互式向导，按提示输入你的参数：
+整段复制并粘贴执行。自动进入问答环节，遇到每一项**填入对应参数并按回车**（直接按回车则采用括号内的默认值）：
 
 ```bash
-bash -c 'cat << "SH_EOF" > /root/setup.sh
+cat << 'EOF' > /root/setup.sh
 #!/bin/bash
 clear
 mkdir -p /opt/sing-box/ui /opt/sing-box/backup
@@ -198,8 +199,8 @@ SUB_TOKEN=${INPUT_TOKEN:-$RAND_TOKEN}
 
 UUID=$(/usr/local/bin/sing-box generate uuid | tr -d "\r\n ")
 KEYPAIR=$(/usr/local/bin/sing-box generate reality-keypair)
-PRIVATE_KEY=$(echo "$KEYPAIR" | grep "PrivateKey" | awk "{print \$2}" | tr -d "\r\n ")
-PUBLIC_KEY=$(echo "$KEYPAIR" | grep "PublicKey" | awk "{print \$2}" | tr -d "\r\n ")
+PRIVATE_KEY=$(echo "$KEYPAIR" | grep "PrivateKey" | awk '{print $2}' | tr -d "\r\n ")
+PUBLIC_KEY=$(echo "$KEYPAIR" | grep "PublicKey" | awk '{print $2}' | tr -d "\r\n ")
 SHORT_ID=$(openssl rand -hex 8 | tr -d "\r\n ")
 
 TOTAL_BYTES=$(( TRAFFIC_GB * 1024 * 1024 * 1024 ))
@@ -226,9 +227,8 @@ export EXPIRE_TIME="${EXPIRE_TIME}"
 EOF
 
 echo "[OK] Environment variables saved to /opt/sing-box/my_env.sh"
-SH_EOF
+EOF
 bash /root/setup.sh
-'
 ```
 
 ---
@@ -238,11 +238,11 @@ bash /root/setup.sh
 整段复制并粘贴执行。自动写入服务端与客户端文件并拉起服务：
 
 ```bash
-bash -c '
+cat << 'EOF' > /tmp/step3.sh
 source /opt/sing-box/my_env.sh
 
 # 1. 写入服务端 sing-box 配置
-cat << EOF > /opt/sing-box/config.json
+cat << SBOF > /opt/sing-box/config.json
 {
   "log": { "level": "warn" },
   "inbounds": [
@@ -266,10 +266,10 @@ cat << EOF > /opt/sing-box/config.json
   ],
   "outbounds": [{ "type": "direct", "tag": "direct" }]
 }
-EOF
+SBOF
 
 # 2. 写入 sing-box 服务单元
-cat << "EOF" > /etc/systemd/system/sing-box.service
+cat << 'SYSOF' > /etc/systemd/system/sing-box.service
 [Unit]
 Description=sing-box service
 After=network.target nss-lookup.target
@@ -284,10 +284,10 @@ LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target
-EOF
+SYSOF
 
 # 3. 写入客户端纯净 YAML（DNS 纯 IP 化，规避网页翻译插件干扰）
-cat << EOF > /opt/sing-box/ui/index.html
+cat << YAMLOF > /opt/sing-box/ui/index.html
 port: 7890
 socks-port: 7891
 allow-lan: false
@@ -357,10 +357,10 @@ rules:
   - DOMAIN-SUFFIX,googlevideo.com,国外媒体
   - GEOIP,CN,DIRECT
   - MATCH,漏网之鱼
-EOF
+YAMLOF
 
 # 4. 写入 Perl 动态流量统计服务
-cat << EOF > /opt/sing-box/sub.pl
+cat << PLOF > /opt/sing-box/sub.pl
 use strict;
 use warnings;
 use IO::Socket::INET;
@@ -422,10 +422,10 @@ while (my \$client = \$server->accept()) {
     }
     close \$client;
 }
-EOF
+PLOF
 
 # 5. 写入订阅系统服务单元
-cat << "EOF" > /etc/systemd/system/clash-sub.service
+cat << 'SUBOF' > /etc/systemd/system/clash-sub.service
 [Unit]
 Description=Clash Subscription Server
 After=network.target
@@ -438,7 +438,7 @@ RestartSec=2s
 
 [Install]
 WantedBy=multi-user.target
-EOF
+SUBOF
 
 # 6. 服务重启与监听检查
 systemctl daemon-reload
@@ -447,7 +447,8 @@ systemctl restart sing-box clash-sub
 
 echo "[OK] Deployment complete! Listening ports:"
 ss -tulpn | grep -E "(${INT_NODE_PORT}|${INT_SUB_PORT})"
-'
+EOF
+bash /tmp/step3.sh
 ```
 
 ---
@@ -457,20 +458,18 @@ ss -tulpn | grep -E "(${INT_NODE_PORT}|${INT_SUB_PORT})"
 运行以下命令，打印客户端专属订阅链接：
 
 ```bash
-bash -c '
 source /opt/sing-box/my_env.sh
 echo "=========================================================="
 echo "客户端专属订阅导入链接："
 echo "http://${SERVER_IP}:${EXT_SUB_PORT}/token=${SUB_TOKEN}&name=${NODE_NAME}.yaml"
 echo "=========================================================="
-'
 ```
 
 ### Clash Verge 导入步骤：
 1. 复制终端输出的完整 `http://...` 链接。
 2. 打开 **Clash Verge**，进入左侧 **“订阅 (Profiles)”**。
 3. 粘贴至输入框，点击 **“导入 (Import)”**。
-4. 卡片会以设置的节点名命名，并实时显示已用流量与到期时间。
+4. 卡片会以设置的节点名命名，并实时显示已用流量与到期时间[cite: 8]。
 5. 切换到 **“代理 (Proxies)”** 界面点击闪电图标测速，节点将直接返回延迟并正常代理上网。
 
 ---
