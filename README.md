@@ -140,8 +140,11 @@ cat <<'SH_EOF' > /root/setup.sh
 clear
 mkdir -p /opt/sing-box/ui /opt/sing-box/backup
 
-# 纯文本探测 IP，避免任何误转超链接报错
-DETECT_IP=$(curl -s4m 3 [http://ip.sb](http://ip.sb) || curl -s4m 3 [http://ifconfig.me](http://ifconfig.me) || curl -s4m 3 [http://api.ipify.org](http://api.ipify.org) || echo "")
+# 拆分协议头，彻底防止浏览器翻译插件将网址改写为超链接语法导致语法崩溃
+URL_SB="h""t""t""p"":""/""/""i""p"".s""b"
+URL_ME="h""t""t""p"":""/""/""i""f""c""o""n""f""i""g"".m""e"
+URL_IP="h""t""t""p"":""/""/""a""p""i"".i""p""i""f""y"".o""r""g"
+DETECT_IP=$(curl -s4m 3 "$URL_SB" || curl -s4m 3 "$URL_ME" || curl -s4m 3 "$URL_IP" || echo "")
 
 echo "========================================================"
 echo "          独角鲸云 NAT VPS 智能参数配置引导            "
@@ -191,8 +194,6 @@ PUBLIC_KEY=$(echo "$KEYPAIR" | grep "PublicKey" | awk '{print $2}' | tr -d '\r\n
 SHORT_ID=$(openssl rand -hex 8 | tr -d '\r\n')
 
 TOTAL_BYTES=$(( TRAFFIC_GB * 1024 * 1024 * 1024 ))
-
-# 使用 awk 精确将两位小数 GB 换算为精确字节整数
 BASE_USED_BYTES=$(awk "BEGIN {printf \"%.0f\", ${USED_GB} * 1024 * 1024 * 1024}")
 
 cat <<EOF> /opt/sing-box/my_env.sh
