@@ -3,7 +3,7 @@
 > **适用场景**：独角鲸云、碳云、微基主机等所有 NAT VPS 商家及普通独立 IP VPS。  
 > **支持架构**：x86_64 (amd64) / aarch64 (arm64)，系统推荐 Debian 11/12/13 或 Ubuntu。  
 > **核心组合**：官方静态 `sing-box` (VLESS-REALITY-Vision) + 原生 `Perl 5` 极轻量动态流量订阅。  
-> **设计特点**：图文分步明确、参数高度可自定义、支持内外端口分离映射、完全免疫浏览器翻译插件篡改与网页终端粘贴截断。
+> **设计特点**：图文分步明确、参数高度可自定义、支持内外端口分离映射、完全免疫浏览器翻译插件篡改，且代码块自带回车防终端卡顿。
 
 ---
 
@@ -97,7 +97,7 @@
 
 ### 步骤一：安装核心基础工具与内核下载
 
-整段复制并粘贴执行。为彻底规避网页终端的粘贴乱码和翻译插件篡改，这里加入了非交互安装模式并全采用纯净指令与 Base64 编码下载：
+整段复制并粘贴执行。为彻底规避网页终端的粘贴乱码和翻译插件篡改，这里加入了非交互安装模式并全采用纯净指令与 Base64 编码下载（已自带换行执行）：
 
 ```bash
 export DEBIAN_FRONTEND=noninteractive
@@ -131,6 +131,7 @@ else
     echo "[ERROR] Download failed! Please check your network."
     exit 1
 fi
+
 ```
 
 ---
@@ -226,13 +227,14 @@ echo "[OK] Environment variables saved to /opt/sing-box/my_env.sh"
 SH_EOF
 
 bash /root/setup.sh
+
 ```
 
 ---
 
 ### 步骤三：写入核心服务配置并拉起
 
-整段复制并粘贴执行。代码会自动引用步骤二生成的所有变量，一次性写入所需配置，并启动系统服务：
+整段复制并粘贴执行。代码会自动引用步骤二生成的所有变量，一次性写入所需配置，并启动系统服务（自动回车执行完毕）：
 
 ```bash
 source /opt/sing-box/my_env.sh
@@ -443,6 +445,7 @@ systemctl restart sing-box clash-sub
 
 echo "[OK] Deployment complete! Listening ports:"
 ss -tulpn | grep -E "(${INT_NODE_PORT}|${INT_SUB_PORT})"
+
 ```
 
 ---
@@ -457,6 +460,7 @@ echo "=========================================================="
 echo "客户端专属订阅导入链接："
 echo "http://${SERVER_IP}:${EXT_SUB_PORT}/token=${SUB_TOKEN}&name=${NODE_NAME}.yaml"
 echo "=========================================================="
+
 ```
 
 ### Clash Verge 导入步骤：
