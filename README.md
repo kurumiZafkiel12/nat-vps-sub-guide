@@ -35,7 +35,8 @@
 ### 1. 访问网站与注册账号
 打开独角鲸云平台入口：`https://dash.fuckip.me/login`，点击 **“立即注册”**（已有账号可直接登录）。
 
-![独角鲸云登录与注册入口](images/01-login-register.png)
+![独角鲸云登录与注册入口]<img width="2880" height="1647" alt="图片" src="https://github.com/user-attachments/assets/eece47e0-a361-4072-932c-3cb961d44742" />
+
 
 选择合适的注册认证方式完成登录（支持 Google 或 GitHub 快捷授权）：
 
