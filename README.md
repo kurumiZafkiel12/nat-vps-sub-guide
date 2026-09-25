@@ -3,7 +3,7 @@
 > **适用场景**：独角鲸云、碳云、微基主机等所有 NAT VPS 商家及普通独立 IP VPS。  
 > **支持架构**：x86_64 (amd64) / aarch64 (arm64)，系统推荐 Debian 11/12/13 或 Ubuntu。  
 > **核心组合**：官方静态 `sing-box` (VLESS-REALITY-Vision) + 原生 `Perl 5` 极轻量动态流量订阅。  
-> **设计特点**：图文步骤完整、参数逐项交互可控、支持内外端口分离映射、完全免疫浏览器翻译插件对 URL 的篡改。
+> **设计特点**：图文步骤完整、参数逐项交互可控、支持内外端口分离映射、完全杜绝两层 EOF 嵌套冲突与网页终端截断。
 
 ---
 
@@ -23,10 +23,10 @@
 
 ## 0. 什么是 NAT 小鸡？（通俗科普）
 
-* **独立 IP VPS（普通服务器）**：类似于独门独栋房屋，拥有独立的门牌号（独立公网 IP），所有端口都可以对外开放监听。
+* **独立 IP VPS（普通服务器）**：类似于独栋房屋，拥有独立的门牌号（独立公网 IP），所有端口都可以对外开放监听。
 * **NAT 小鸡（共享型服务器）**：类似于合租公寓。
   * **共享大门**：整台物理母机上的所有用户共享同一个公网 IPv4。
-  * **端口转发**：外网无法通过任意端口直接访问小鸡，必须通过母机路由器进行端口映射。商家会分配几个专属的外部端口（建议选择像 `55555`、`55556` 这类高位 5 万段端口，避开干扰）。外网通过访问 `公网IP:外部端口`，路由器才会准确把数据包转发到小鸡内部。
+  * **端口转发**：外网无法通过任意端口直接访问小鸡，必须通过母机路由器进行端口映射。商家会分配几个专属的外部端口（强烈建议选择像 `55555`、`55556` 这种 5 万段的高位端口，避开低位冲突）。外网通过访问 `公网IP:外部端口`，路由器才会准确把数据包转发到小鸡内部。
   * **两种映射模式**：
     * **模式 A（内外一致，如独角鲸云）**：外部端口与内部端口相同。
     * **模式 B（内外不同，如部分传统 NAT）**：商家分配外部端口（如 `45821`），小鸡内部监听指定内网端口（如 `10086`）。本教程完全兼容两种模式。
@@ -100,7 +100,7 @@
 整段复制并粘贴执行。自动写入执行，完全不卡 Web 终端：
 
 ```bash
-cat << 'EOF' > /tmp/step1.sh
+cat << 'STEP1_EOF' > /tmp/step1.sh
 export DEBIAN_FRONTEND=noninteractive
 apt update -y && apt install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" curl perl openssl procps jq bc
 
@@ -133,7 +133,7 @@ else
     echo "[ERROR] Download failed! Please check your network."
     exit 1
 fi
-EOF
+STEP1_EOF
 bash /tmp/step1.sh
 
 ```
@@ -142,10 +142,10 @@ bash /tmp/step1.sh
 
 ### 步骤二：参数交互引导与变量持久化
 
-整段复制并粘贴执行。自动进入问答环节，遇到每一项**填入对应参数并按回车**（若直接按回车则采用括号内的默认值）：
+整段复制并粘贴执行。无重名嵌套，遇到每一项**填入对应参数并按回车**（若直接回车则采用括号内的默认值）：
 
 ```bash
-cat << 'EOF' > /root/setup.sh
+cat << 'MAIN_EOF' > /root/setup.sh
 #!/bin/bash
 clear
 mkdir -p /opt/sing-box/ui /opt/sing-box/backup
@@ -165,11 +165,11 @@ else
     SERVER_IP=${INPUT_IP}
 fi
 
-read -p "2. 节点【外部公网端口】(客户端连接用, 例如 55555): " EXT_NODE_PORT
+read -p "2. 节点【外部公网端口】(客户端连接用, 建议5万段如 55555): " EXT_NODE_PORT
 read -p "   节点【内部监听端口】[内外一致直接回车，默认: ${EXT_NODE_PORT}]: " INT_NODE_PORT
 INT_NODE_PORT=${INT_NODE_PORT:-$EXT_NODE_PORT}
 
-read -p "3. 订阅【外部公网端口】(客户端拉取订阅用, 例如 55556): " EXT_SUB_PORT
+read -p "3. 订阅【外部公网端口】(客户端拉取订阅用, 建议5万段如 55556): " EXT_SUB_PORT
 read -p "   订阅【内部监听端口】[内外一致直接回车，默认: ${EXT_SUB_PORT}]: " INT_SUB_PORT
 INT_SUB_PORT=${INT_SUB_PORT:-$EXT_SUB_PORT}
 
@@ -207,28 +207,48 @@ SHORT_ID=$(openssl rand -hex 8 | tr -d "\r\n ")
 TOTAL_BYTES=$(( TRAFFIC_GB * 1024 * 1024 * 1024 ))
 BASE_USED_BYTES=$(awk "BEGIN {printf \"%.0f\", ${USED_GB} * 1024 * 1024 * 1024}")
 
-cat << EOF> /opt/sing-box/my_env.sh
-export SERVER_IP="${SERVER_IP}"
-export EXT_NODE_PORT="${EXT_NODE_PORT}"
-export INT_NODE_PORT="${INT_NODE_PORT}"
-export EXT_SUB_PORT="${EXT_SUB_PORT}"
-export INT_SUB_PORT="${INT_SUB_PORT}"
-export NODE_NAME="${NODE_NAME}"
-export TRAFFIC_GB="${TRAFFIC_GB}"
-export USED_GB="${USED_GB}"
-export BASE_USED_BYTES="${BASE_USED_BYTES}"
-export SUB_TOKEN="${SUB_TOKEN}"
-export NET_IFACE="${NET_IFACE}"
-export UUID="${UUID}"
-export PRIVATE_KEY="${PRIVATE_KEY}"
-export PUBLIC_KEY="${PUBLIC_KEY}"
-export SHORT_ID="${SHORT_ID}"
-export TOTAL_BYTES="${TOTAL_BYTES}"
-export EXPIRE_TIME="${EXPIRE_TIME}"
-EOF
+cat << 'ENV_EOF'> /opt/sing-box/my_env.sh
+export SERVER_IP="__SERVER_IP__"
+export EXT_NODE_PORT="__EXT_NODE_PORT__"
+export INT_NODE_PORT="__INT_NODE_PORT__"
+export EXT_SUB_PORT="__EXT_SUB_PORT__"
+export INT_SUB_PORT="__INT_SUB_PORT__"
+export NODE_NAME="__NODE_NAME__"
+export TRAFFIC_GB="__TRAFFIC_GB__"
+export USED_GB="__USED_GB__"
+export BASE_USED_BYTES="__BASE_USED_BYTES__"
+export SUB_TOKEN="__SUB_TOKEN__"
+export NET_IFACE="__NET_IFACE__"
+export UUID="__UUID__"
+export PRIVATE_KEY="__PRIVATE_KEY__"
+export PUBLIC_KEY="__PUBLIC_KEY__"
+export SHORT_ID="__SHORT_ID__"
+export TOTAL_BYTES="__TOTAL_BYTES__"
+export EXPIRE_TIME="__EXPIRE_TIME__"
+ENV_EOF
 
-echo "[OK] Environment variables saved to /opt/sing-box/my_env.sh"
-EOF
+sed -i "s#__SERVER_IP__#$SERVER_IP#g" /opt/sing-box/my_env.sh
+sed -i "s#__EXT_NODE_PORT__#$EXT_NODE_PORT#g" /opt/sing-box/my_env.sh
+sed -i "s#__INT_NODE_PORT__#$INT_NODE_PORT#g" /opt/sing-box/my_env.sh
+sed -i "s#__EXT_SUB_PORT__#$EXT_SUB_PORT#g" /opt/sing-box/my_env.sh
+sed -i "s#__INT_SUB_PORT__#$INT_SUB_PORT#g" /opt/sing-box/my_env.sh
+sed -i "s#__NODE_NAME__#$NODE_NAME#g" /opt/sing-box/my_env.sh
+sed -i "s#__TRAFFIC_GB__#$TRAFFIC_GB#g" /opt/sing-box/my_env.sh
+sed -i "s#__USED_GB__#$USED_GB#g" /opt/sing-box/my_env.sh
+sed -i "s#__BASE_USED_BYTES__#$BASE_USED_BYTES#g" /opt/sing-box/my_env.sh
+sed -i "s#__SUB_TOKEN__#$SUB_TOKEN#g" /opt/sing-box/my_env.sh
+sed -i "s#__NET_IFACE__#$NET_IFACE#g" /opt/sing-box/my_env.sh
+sed -i "s#__UUID__#$UUID#g" /opt/sing-box/my_env.sh
+sed -i "s#__PRIVATE_KEY__#$PRIVATE_KEY#g" /opt/sing-box/my_env.sh
+sed -i "s#__PUBLIC_KEY__#$PUBLIC_KEY#g" /opt/sing-box/my_env.sh
+sed -i "s#__SHORT_ID__#$SHORT_ID#g" /opt/sing-box/my_env.sh
+sed -i "s#__TOTAL_BYTES__#$TOTAL_BYTES#g" /opt/sing-box/my_env.sh
+sed -i "s#__EXPIRE_TIME__#$EXPIRE_TIME#g" /opt/sing-box/my_env.sh
+
+echo "=========================================================="
+echo "[OK] 参数固化成功！保存至 /opt/sing-box/my_env.sh"
+echo "=========================================================="
+MAIN_EOF
 bash /root/setup.sh
 
 ```
@@ -237,10 +257,10 @@ bash /root/setup.sh
 
 ### 步骤三：写入核心服务配置并启动
 
-整段复制并粘贴执行。完全还原那台正常 VPS 的标准生产配置，自动写入服务端与客户端文件并拉起服务：
+整段复制并粘贴执行。完全还原正常 VPS 结构，自动写入服务端与客户端文件并拉起服务：
 
 ```bash
-cat << 'EOF' > /tmp/step3.sh
+cat << 'STEP3_EOF' > /tmp/step3.sh
 source /opt/sing-box/my_env.sh
 
 # 1. 写入服务端 sing-box 配置
@@ -305,7 +325,7 @@ LimitNOFILE=65535
 WantedBy=multi-user.target
 SYSOF
 
-# 3. 写入客户端 YAML 模板（完全还原正常 VPS 结构，带防破坏纯 IP DNS）
+# 3. 写入客户端 YAML 模板（带纯 IP DNS 防破坏）
 cat << YAMLOF > /opt/sing-box/ui/index.html
 port: 7890
 socks-port: 7891
@@ -468,7 +488,7 @@ echo "=========================================================="
 echo "[OK] 服务启动完成！当前监听端口情况："
 ss -tulpn | grep -E "(${INT_NODE_PORT}|${INT_SUB_PORT})"
 echo "=========================================================="
-EOF
+STEP3_EOF
 bash /tmp/step3.sh
 
 ```
@@ -492,7 +512,7 @@ echo "=========================================================="
 1. 复制终端输出的完整 `http://...` 链接。
 2. 打开 **Clash Verge**，进入左侧 **“订阅 (Profiles)”**。
 3. 粘贴至输入框，点击 **“导入 (Import)”**。
-4. 卡片会以设置的节点名命名，并实时显示已用流量与到期时间。
+4. 卡片会以设置的节点名命名，并实时显示已用流量与到期时间[cite: 8]。
 5. 切换到 **“代理 (Proxies)”** 界面点击闪电图标测速，节点将直接返回延迟并正常代理上网。
 
 ---
