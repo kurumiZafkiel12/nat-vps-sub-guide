@@ -140,14 +140,20 @@ cat <<'SH_EOF' > /root/setup.sh
 clear
 mkdir -p /opt/sing-box/ui /opt/sing-box/backup
 
-# 纯文本探测 IP，避免任何误转超链接报错
-DETECT_IP=$(curl -s4m 5 "[http://api4.ipify.org](http://api4.ipify.org)" || curl -s4m 5 "[http://icanhazip.com](http://icanhazip.com)" || echo "")
+# 采用三大主流纯文本接口轮询探测，超高成功率
+DETECT_IP=$(curl -s4m 3 http://ip.sb || curl -s4m 3 http://ifconfig.me || curl -s4m 3 http://api.ipify.org || echo "")
+
 echo "========================================================"
 echo "          独角鲸云 NAT VPS 智能参数配置引导            "
 echo "========================================================"
 
-read -p "1. 确认公网 IP [默认探测: ${DETECT_IP}]: " INPUT_IP
-SERVER_IP=${INPUT_IP:-$DETECT_IP}
+if [ -n "$DETECT_IP" ]; then
+    read -p "1. 确认公网 IP [默认探测: ${DETECT_IP}]: " INPUT_IP
+    SERVER_IP=${INPUT_IP:-$DETECT_IP}
+else
+    read -p "1. 请输入独角鲸后台显示的公网 IP: " INPUT_IP
+    SERVER_IP=${INPUT_IP}
+fi
 
 read -p "2. 独角鲸云分配给节点的外部端口 (VLESS): " NODE_PORT
 read -p "3. 独角鲸云分配给订阅的外部端口 (HTTP): " SUB_PORT
@@ -157,11 +163,11 @@ NODE_NAME=${INPUT_NAME:-"日本自建（400g）"}
 read -p "5. 总流量额度(GB) [看面板填纯数字, 默认: 400]: " INPUT_GB
 TRAFFIC_GB=${INPUT_GB:-400}
 
-# === 基础已用流量垫底（精确支持两位小数，如 12.35、0.58） ===
+# === 基础已用流量垫底（精确支持两位小数） ===
 read -p "6. 之前已用过的流量(GB) [支持两位小数，新机直接回车填 0]: " INPUT_USED_GB
 USED_GB=${INPUT_USED_GB:-0}
 
-# === 直接照抄后台到期时间 ===
+# === 面板到期时间 ===
 read -p "7. 面板显示的到期时间 [格式示例: 2026-10-17 22:59:42]: " INPUT_DATE
 if [ -n "$INPUT_DATE" ]; then
     EXPIRE_TIME=$(date -d "$INPUT_DATE" +%s 2>/dev/null || echo "$(( $(date +%s) + 30 * 86400 ))")
@@ -185,11 +191,9 @@ PUBLIC_KEY=$(echo "$KEYPAIR" | grep "PublicKey" | awk '{print $2}')
 SHORT_ID=$(openssl rand -hex 8)
 
 TOTAL_BYTES=$(( TRAFFIC_GB * 1024 * 1024 * 1024 ))
-
-# 使用 awk 精确将两位小数 GB 换算为精确字节整数
 BASE_USED_BYTES=$(awk "BEGIN {printf \"%.0f\", ${USED_GB} * 1024 * 1024 * 1024}")
 
-cat <<EOF> /opt/sing-box/my_env.sh
+cat <<EOF > /opt/sing-box/my_env.sh
 export SERVER_IP="${SERVER_IP}"
 export NODE_PORT="${NODE_PORT}"
 export SUB_PORT="${SUB_PORT}"
