@@ -3,7 +3,7 @@
 > **适用场景**：独角鲸云、碳云、微基主机等所有 NAT VPS 商家及普通独立 IP VPS。  
 > **支持架构**：x86_64 (amd64) / aarch64 (arm64)，系统推荐 Debian 11/12/13 或 Ubuntu。  
 > **核心组合**：官方静态 `sing-box` (VLESS-REALITY-Vision) + 原生 `Perl 5` 极轻量动态流量订阅。  
-> **设计特点**：图文步骤完整、参数逐项交互可控、支持内外端口分离映射、完全免疫浏览器翻译插件对 URL 的篡改，代码块全部采用 `{ }` 复合块封装以防止终端卡输入。
+> **设计特点**：图文步骤完整、参数逐项交互可控、支持内外端口分离映射、完全免疫浏览器翻译插件对 URL 的篡改，彻底解决 Web 终端粘贴卡回车问题。
 
 ---
 
@@ -97,10 +97,10 @@
 
 ### 步骤一：安装基础工具与 sing-box 校验
 
-整段复制并粘贴执行。命令采用 `{ ... }` 语法闭合，末尾带闭合大括号，粘贴后自动触发全量执行，无需手动回车：
+整段复制并粘贴执行。这里采用 `bash -c` 封装，粘贴瞬间就会由子进程接管执行，即使末尾换行被浏览器吞掉，也会立刻跑完并打印成功提示：
 
 ```bash
-{
+bash -c '
 export DEBIAN_FRONTEND=noninteractive
 apt update -y && apt install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" curl perl openssl procps jq bc
 
@@ -126,23 +126,24 @@ if [ -f /tmp/sb.tar.gz ]; then
 fi
 
 if "$TARGET" version &>/dev/null; then
-    echo "[OK] sing-box installed successfully!"
+    echo "=================================================="
+    echo "[OK] sing-box installed successfully! Version: $("$TARGET" version | head -n1)"
+    echo "=================================================="
 else
     echo "[ERROR] Download failed! Please check your network."
     exit 1
 fi
-}
+'
 ```
 
 ---
 
 ### 步骤二：参数交互引导与变量持久化
 
-整段复制并粘贴执行。自动进入问答环节，遇到每一项**填入对应参数并按回车**（直接按回车则采用括号内的默认值）：
+整段复制并粘贴执行。直接拉起交互式向导，按提示输入你的参数：
 
 ```bash
-{
-cat <<'SH_EOF' > /root/setup.sh
+bash -c 'cat << "SH_EOF" > /root/setup.sh
 #!/bin/bash
 clear
 mkdir -p /opt/sing-box/ui /opt/sing-box/backup
@@ -195,16 +196,16 @@ RAND_TOKEN=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 16)
 read -p "9. 订阅安全 Token [直接回车随机生成: ${RAND_TOKEN}]: " INPUT_TOKEN
 SUB_TOKEN=${INPUT_TOKEN:-$RAND_TOKEN}
 
-UUID=$(/usr/local/bin/sing-box generate uuid | tr -d '\r\n ')
+UUID=$(/usr/local/bin/sing-box generate uuid | tr -d "\r\n ")
 KEYPAIR=$(/usr/local/bin/sing-box generate reality-keypair)
-PRIVATE_KEY=$(echo "$KEYPAIR" | grep "PrivateKey" | awk '{print $2}' | tr -d '\r\n ')
-PUBLIC_KEY=$(echo "$KEYPAIR" | grep "PublicKey" | awk '{print $2}' | tr -d '\r\n ')
-SHORT_ID=$(openssl rand -hex 8 | tr -d '\r\n ')
+PRIVATE_KEY=$(echo "$KEYPAIR" | grep "PrivateKey" | awk "{print \$2}" | tr -d "\r\n ")
+PUBLIC_KEY=$(echo "$KEYPAIR" | grep "PublicKey" | awk "{print \$2}" | tr -d "\r\n ")
+SHORT_ID=$(openssl rand -hex 8 | tr -d "\r\n ")
 
 TOTAL_BYTES=$(( TRAFFIC_GB * 1024 * 1024 * 1024 ))
 BASE_USED_BYTES=$(awk "BEGIN {printf \"%.0f\", ${USED_GB} * 1024 * 1024 * 1024}")
 
-cat <<EOF> /opt/sing-box/my_env.sh
+cat << EOF> /opt/sing-box/my_env.sh
 export SERVER_IP="${SERVER_IP}"
 export EXT_NODE_PORT="${EXT_NODE_PORT}"
 export INT_NODE_PORT="${INT_NODE_PORT}"
@@ -226,23 +227,22 @@ EOF
 
 echo "[OK] Environment variables saved to /opt/sing-box/my_env.sh"
 SH_EOF
-
 bash /root/setup.sh
-}
+'
 ```
 
 ---
 
 ### 步骤三：写入核心服务配置并启动
 
-整段复制并粘贴执行。代码会自动引用步骤二生成的环境变量，原子级写入服务端与客户端文件，并启动系统服务（自动触发运行）：
+整段复制并粘贴执行。自动写入服务端与客户端文件并拉起服务：
 
 ```bash
-{
+bash -c '
 source /opt/sing-box/my_env.sh
 
 # 1. 写入服务端 sing-box 配置
-cat <<EOF> /opt/sing-box/config.json
+cat << EOF > /opt/sing-box/config.json
 {
   "log": { "level": "warn" },
   "inbounds": [
@@ -269,7 +269,7 @@ cat <<EOF> /opt/sing-box/config.json
 EOF
 
 # 2. 写入 sing-box 服务单元
-cat <<'EOF' > /etc/systemd/system/sing-box.service
+cat << "EOF" > /etc/systemd/system/sing-box.service
 [Unit]
 Description=sing-box service
 After=network.target nss-lookup.target
@@ -287,7 +287,7 @@ WantedBy=multi-user.target
 EOF
 
 # 3. 写入客户端纯净 YAML（DNS 纯 IP 化，规避网页翻译插件干扰）
-cat <<EOF> /opt/sing-box/ui/index.html
+cat << EOF > /opt/sing-box/ui/index.html
 port: 7890
 socks-port: 7891
 allow-lan: false
@@ -360,7 +360,7 @@ rules:
 EOF
 
 # 4. 写入 Perl 动态流量统计服务
-cat <<EOF> /opt/sing-box/sub.pl
+cat << EOF > /opt/sing-box/sub.pl
 use strict;
 use warnings;
 use IO::Socket::INET;
@@ -425,7 +425,7 @@ while (my \$client = \$server->accept()) {
 EOF
 
 # 5. 写入订阅系统服务单元
-cat <<'EOF' > /etc/systemd/system/clash-sub.service
+cat << "EOF" > /etc/systemd/system/clash-sub.service
 [Unit]
 Description=Clash Subscription Server
 After=network.target
@@ -447,7 +447,7 @@ systemctl restart sing-box clash-sub
 
 echo "[OK] Deployment complete! Listening ports:"
 ss -tulpn | grep -E "(${INT_NODE_PORT}|${INT_SUB_PORT})"
-}
+'
 ```
 
 ---
@@ -457,13 +457,13 @@ ss -tulpn | grep -E "(${INT_NODE_PORT}|${INT_SUB_PORT})"
 运行以下命令，打印客户端专属订阅链接：
 
 ```bash
-{
+bash -c '
 source /opt/sing-box/my_env.sh
 echo "=========================================================="
 echo "客户端专属订阅导入链接："
 echo "http://${SERVER_IP}:${EXT_SUB_PORT}/token=${SUB_TOKEN}&name=${NODE_NAME}.yaml"
 echo "=========================================================="
-}
+'
 ```
 
 ### Clash Verge 导入步骤：
