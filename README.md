@@ -1,177 +1,139 @@
-# NAT小鸡极简自建节点与动态流量订阅指南（以独角鲸云为例）
+# 全通用 NAT VPS 极简节点与动态流量订阅一键部署指南
 
-> **适用场景**：独角鲸云或其他商家的 NAT VPS、独立 IP 小鸡（64MB~512MB 内存）。  
-> **核心组合**：官方静态 `sing-box` (VLESS-REALITY-Vision) + 原生 `Perl 5` 极轻量动态流量订阅。  
-> **设计特点**：图文对照操作、终端问答式输入、自动探测 IP 与网卡、自动生成密钥、持久化保存变量、防翻译插件篡改、彻底解决“开着梯子更新订阅报错 `failed to fetch remote profile`”。
+> **适用场景**：所有 NAT VPS（独角鲸云、碳云、微基主机、各类廉价 NAT 小鸡）及普通独立 IP VPS。  
+> **支持架构**：x86_64 (amd64) / aarch64 (arm64)，系统推荐 Debian 11/12 或 Ubuntu 20.04/22.04。  
+> **核心组件**：官方静态 `sing-box` (VLESS-REALITY-Vision) + 原生 `Perl 5` 超轻量动态流量订阅。  
+> **核心优势**：
+> 1. **全通用**：支持“内外端口一致”与“内外端口不同（强制映射）”的所有 NAT 商家。
+> 2. **零转义事故**：DNS 纯 IP 化，完全规避浏览器翻译插件改写 Markdown 超链接引起的 YAML 语法崩溃。
+> 3. **原子级单步生成**：不使用脆弱的二次文本替换，杜绝空白密钥或端口冲突。
+> 4. **双向防阻断**：自带开着代理也能秒级更新订阅的规则设计。
 
 ---
 
 ## 目录
-- [0. 什么是 NAT 小鸡？（通俗科普）](#0-什么是-nat-小鸡通俗科普)
-- [1. 第一部分：独角鲸云注册、充值与开机（图文步骤）](#1-第一部分独角鲸云注册充值与开机图文步骤)
-- [2. 第二部分：NAT 端口转发规则配置（核心关键）](#2-第二部分nat-端口转发规则配置核心关键)
-- [3. 第三部分：进入控制台与交互式部署服务](#3-第三部分进入控制台与交互式部署服务)
-  - [步骤一：安装核心依赖环境](#步骤一安装核心依赖环境)
-  - [步骤二：参数交互输入与变量持久化创建（支持两位小数）](#步骤二参数交互输入与变量持久化创建支持两位小数)
-  - [步骤三：一键部署核心节点与订阅服务](#步骤三一键部署核心节点与订阅服务)
-- [4. 第四部分：查看客户端导入链接与 Clash Verge 导入](#4-第四部分查看客户端导入链接与-clash-verge-导入)
-- [5. 第五部分：核心防阻断技巧（开着梯子也能秒级更新订阅）](#5-第五部分核心防阻断技巧开着梯子也能秒级更新订阅)
-- [6. 常用维护与一键救砖还原](#6-常用维护与一键救砖还原)
+- [0. 核心原理解析：NAT 端口映射模型](#0-核心原理解析nat-端口映射模型)
+- [1. 第一步：在商家后台配置/查看端口转发](#1-第一步在商家后台配置查看端口转发)
+- [2. 第二步：环境初始化与 sing-box 校验](#2-第二步环境初始化与-sing-box-校验)
+- [3. 第三步：全通用交互式部署脚本](#3-第三步全通用交互式部署脚本)
+- [4. 第四步：获取专属订阅并在客户端导入](#4-第四步获取专属订阅并在客户端导入)
+- [5. 核心避坑：开着梯子更新订阅失败的解法](#5-核心避坑开着梯子更新订阅失败的解法)
+- [6. 维护与救砖命令](#6-维护与救砖命令)
 
 ---
 
-## 0. 什么是 NAT 小鸡？（通俗科普）
+## 0. 核心原理解析：NAT 端口映射模型
 
-* **独立 IP VPS（普通服务器）**：类似于独门独栋别墅，有独立的门牌号（独立公网 IP），所有端口都可以对外开放监听。
-* **NAT 小鸡（共享型服务器）**：类似于合租大型公寓楼。
-  * **共享大门**：整台物理母机上的所有合租用户共享同一个公网 IPv4。
-  * **端口转发进屋**：外网无法通过任意端口找到你的小鸡，必须通过商家路由器进行“端口映射”。商家会分配给你的房间几个专属的外部端口（例如分配 `55555`、`55556`）。外网通过访问 `公网IP:外部端口`，路由器才会准确把流量转发给你的小鸡内部。
-  * **优势**：价格极其亲民、配置精巧、性价比高。
+NAT VPS 由于全母鸡共享同一个公网 IPv4，商家会通过网关进行端口映射。通常有两种模式：
+* **模式 A（内外一致，如独角鲸云）**：你申请外部端口 `23456`，小鸡内部也直接监听 `23456`。
+* **模式 B（内外不同，如多数传统 NAT 面板）**：商家分配给你一个外部端口（如 `45821`），但要求你小鸡内部必须监听指定的内网端口（如 `10086` 或 `10000~10020` 范围）。
 
----
+本教程脚本全面兼容这两种模式，在交互输入时根据后台提示填入即可。
 
-## 1. 第一部分：独角鲸云注册、充值与开机（图文步骤）
-
-### 1. 访问网站与注册账号
-打开独角鲸云平台入口：`https://dash.fuckip.me/login`，点击 **“立即注册”**（已有账号可直接登录）。
-
-![独角鲸云登录与注册入口]<img width="2880" height="1647" alt="图片" src="https://github.com/user-attachments/assets/eece47e0-a361-4072-932c-3cb961d44742" />
-
-
-选择合适的注册认证方式完成登录（支持 Google 或 GitHub 快捷授权）：
-
-![选择注册登录方式]<img width="2880" height="1647" alt="图片" src="https://github.com/user-attachments/assets/fd196e13-32c4-4762-af2c-3bb32b9dbe29" />
-
-
-### 2. 账号充值
-进入用户后台首页：
-
-![独角鲸云控制台首页]<img width="2880" height="1647" alt="图片" src="https://github.com/user-attachments/assets/14165be5-1fe4-4729-9624-0f41d89993cb" />
-
-
-点击左侧菜单栏的 **“账单充值”**，选择合适的支付方式（支持信用卡、支付宝、微信或加密货币）：
-
-![充值方式与金额选择]<img width="2880" height="1647" alt="图片" src="https://github.com/user-attachments/assets/aaed142f-6531-4964-8cb9-0c42e63652dd" />
-
-
-### 3. 新建实例与选择节点
-点击左侧菜单栏的 **“新建实例”**，在地区列表中选择你需要的国家（例如日本、美国等）：
-
-![选择实例部署地区]<img width="1024" height="585" alt="图片" src="https://github.com/user-attachments/assets/1fd2cc42-c06c-4f62-9197-cea3af093c75" />
-
-
-滑动页面至下方选择母鸡节点与配置套餐（例如 400G / 500G 流量套餐）：
-
-![选择母鸡与配置规格]<img width="2880" height="1647" alt="图片" src="https://github.com/user-attachments/assets/dd62b50a-41e8-4186-a4c2-420d3df41781" />
-
-
-### 4. 系统镜像选择
-系统选择 **Debian (Podman)**。密码直接使用系统随机生成的即可（此密码仅用于传统 SSH，本教程使用网页端免密控制台，无需死记）：
-
-![选择 Debian 操作系统]<img width="1091" height="448" alt="图片" src="https://github.com/user-attachments/assets/2bc73cb0-c22a-422b-89da-91237b58fd5c" />
-
-点击确定并创建，等待几十秒直到实例状态显示为正常运行。
+我们需要在小鸡上打通**两个服务**：
+1. **节点服务**：运行 VLESS-REALITY 协议。
+2. **订阅服务**：运行 Perl 动态流量统计与配置下发。
 
 ---
 
-## 2. 第二部分：NAT 端口转发规则配置（核心关键）
+## 1. 第一步：在商家后台配置/查看端口转发
 
-由于是 NAT 架构，我们必须在商家后台把外网端口与小鸡内网端口打通。我们需要开放 **两个 TCP 规则**：
-1. **节点服务端口**：运行 VLESS-REALITY 协议。
-2. **订阅服务端口**：运行 Perl 动态流量统计与配置下发。
+登录你的 NAT VPS 后台，找到 **端口转发 / Port Forwarding** 列表，确保有两个可用的 TCP 映射规则：
 
-进入实例详情页，下滑找到 **“端口转发”**，点击 **“+ 添加规则”**：
+| 规则用途 | 外部端口 (公网访问用) | 内部端口 (小鸡自身监听用) | 协议 |
+| :--- | :--- | :--- | :--- |
+| **节点转发** | 记下商家分配的外部端口 A | 记下对应的内部端口 A | **TCP** |
+| **订阅转发** | 记下商家分配的外部端口 B | 记下对应的内部端口 B | **TCP** |
 
-![端口转发规则列表]<img width="1288" height="441" alt="图片" src="https://github.com/user-attachments/assets/c364fe94-c038-4c5d-8936-6629a70d8c75" />
-
-
-请依次添加两条规则（建议内外端口保持一致，例如分配 `55555` 和 `55556`）：
-* **规则 1（给节点连接使用）**：
-  * **协议**：`TCP`
-  * **内部端口**：`55555`
-  * **外部端口**：填入系统分配或自选的外部端口（例如 `55555`）
-* **规则 2（给订阅下发使用）**：
-  * **协议**：`TCP`
-  * **内部端口**：`55556`
-  * **外部端口**：填入系统分配或自选的外部端口（例如 `55556`）
-
-> **记下这两个外部端口**：在后续的终端交互中会要求输入。
+> **注**：如果商家允许内外端口自定义（如独角鲸云），直接让外部端口等于内部端口（例如外部 `23456`，内部填 `23456`）。
 
 ---
 
-## 3. 第三部分：进入控制台与交互式部署服务
+## 2. 第二步：环境初始化与 sing-box 校验
 
-在实例详情页的右侧操作区，点击 **“控制台”** 按钮进入网页终端：
-
-![点击控制台进入Web终端]<img width="685" height="1099" alt="图片" src="https://github.com/user-attachments/assets/c1ab8281-ca61-4fc4-99b2-253d83deb611" />
-
-
-进入黑色终端窗口后，按以下步骤依次执行命令：
-
-### 步骤一：安装核心依赖环境
-直接复制并粘贴执行以下命令，安装依赖工具及官方静态 `sing-box`：
+登录小鸡终端（SSH 或网页控制台），整段复制执行以下命令。该脚本会自动检测 CPU 架构（amd64 / arm64），并通过国内与国际双通道拉取官方静态二进制包：
 
 ```bash
-apt update && apt install -y curl perl openssl jq bc
+apt update && apt install -y curl perl openssl procps jq bc
 
-if ! command -v sing-box &> /dev/null; then
-    ARCH=$(dpkg --print-architecture)
-    URL="[https://github.com/SagerNet/sing-box/releases/download/v1.11.4/sing-box-1.11.4-linux-$](https://github.com/SagerNet/sing-box/releases/download/v1.11.4/sing-box-1.11.4-linux-$){ARCH}.tar.gz"
-    curl -fsSL -o /tmp/sb.tar.gz "$URL" || curl -fsSL -o /tmp/sb.tar.gz "[https://ghfast.top/$URL](https://ghfast.top/$URL)"
+# 自动匹配架构并下载 sing-box 静态包
+ARCH_RAW=$(uname -m)
+case "$ARCH_RAW" in
+    x86_64)  ARCH="amd64" ;;
+    aarch64) ARCH="arm64" ;;
+    armv7*)  ARCH="armv7" ;;
+    *) echo "未受支持的架构: $ARCH_RAW" && exit 1 ;;
+esac
+
+SB_VER="1.11.4"
+TARGET="/usr/local/bin/sing-box"
+
+rm -f /tmp/sb.tar.gz
+curl -fsSL -o /tmp/sb.tar.gz "[https://ghfast.top/https://github.com/SagerNet/sing-box/releases/download/v$](https://ghfast.top/https://github.com/SagerNet/sing-box/releases/download/v$){SB_VER}/sing-box-${SB_VER}-linux-${ARCH}.tar.gz" || \
+curl -fsSL -o /tmp/sb.tar.gz "[https://github.com/SagerNet/sing-box/releases/download/v$](https://github.com/SagerNet/sing-box/releases/download/v$){SB_VER}/sing-box-${SB_VER}-linux-${ARCH}.tar.gz"
+
+if [ -f /tmp/sb.tar.gz ]; then
     tar -zxvf /tmp/sb.tar.gz -C /tmp/
-    mv /tmp/sing-box-*/sing-box /usr/local/bin/sing-box
-    chmod +x /usr/local/bin/sing-box
+    mv /tmp/sing-box-*/sing-box "$TARGET"
+    chmod +x "$TARGET"
     rm -rf /tmp/sb* /tmp/sing-box*
 fi
 
-sing-box version
-perl -v | head -n 2
+# 核心可执行验证
+if "$TARGET" version &>/dev/null; then
+    echo "=================================================="
+    echo "sing-box 初始化成功，版本：" $("$TARGET" version | head -n1)
+    echo "=================================================="
+else
+    echo "ERROR: sing-box 下载异常，请检查网络连通性后重试！"
+    exit 1
+fi
 ```
 
 ---
 
-### 步骤二：参数交互输入与变量持久化创建（支持两位小数）
+## 3. 第三步：全通用交互式部署脚本
 
-整段复制并粘贴到控制台回车。脚本会自动探测公网 IP 与真实网卡名、自动生成 UUID、Reality 密钥对与防扫 Token。遇到需要确认的项，**终端会逐条停下来让你输入**（若直接按回车则采用默认值）：
+整段复制并粘贴到终端回车。脚本会自动探测物理网卡与公网 IP，引导输入端口（支持内外一致或内外分离），自动生成 UUID、Reality 密钥，并原子化一次性生成所有配置文件：
 
 ```bash
-cat <<'SH_EOF' > /root/setup.sh
+cat <<'SH_EOF' > /root/universal_deploy.sh
 #!/bin/bash
-clear
+set -e
+
 mkdir -p /opt/sing-box/ui /opt/sing-box/backup
 
-# 拆分协议头，彻底防止浏览器翻译插件将网址改写为超链接语法导致语法崩溃
-URL_SB="h""t""t""p"":""/""/""i""p"".s""b"
-URL_ME="h""t""t""p"":""/""/""i""f""c""o""n""f""i""g"".m""e"
-URL_IP="h""t""t""p"":""/""/""a""p""i"".i""p""i""f""y"".o""r""g"
-DETECT_IP=$(curl -s4m 3 "$URL_SB" || curl -s4m 3 "$URL_ME" || curl -s4m 3 "$URL_IP" || echo "")
-
 echo "========================================================"
-echo "          独角鲸云 NAT VPS 智能参数配置引导            "
+echo "          全通用 NAT VPS 节点与动态订阅部署引导          "
 echo "========================================================"
 
-if [ -n "$DETECT_IP" ]; then
-    read -p "1. 确认公网 IP [默认探测: ${DETECT_IP}]: " INPUT_IP
-    SERVER_IP=${INPUT_IP:-$DETECT_IP}
-else
-    read -p "1. 请输入独角鲸后台显示的公网 IP: " INPUT_IP
-    SERVER_IP=${INPUT_IP}
-fi
+# 防插件篡改探测公网 IP
+P="h""t""t""p"
+DETECT_IP=$(curl -s4m 3 "$P://ip.sb" || curl -s4m 3 "$P://ifconfig.me" || curl -s4m 3 "$P://api.ipify.org" || echo "")
 
-read -p "2. 独角鲸云分配给节点的外部端口 (VLESS): " NODE_PORT
-read -p "3. 独角鲸云分配给订阅的外部端口 (HTTP): " SUB_PORT
-read -p "4. 客户端显示的卡片名称 [默认: 日本自建（400g）]: " INPUT_NAME
-NODE_NAME=${INPUT_NAME:-"日本自建（400g）"}
+read -p "1. 确认小鸡公网 IPv4 [探测结果: ${DETECT_IP}]: " INPUT_IP
+SERVER_IP=${INPUT_IP:-$DETECT_IP}
 
-read -p "5. 总流量额度(GB) [看面板填纯数字, 默认: 400]: " INPUT_GB
-TRAFFIC_GB=${INPUT_GB:-400}
+# --- 节点端口配置 ---
+read -p "2. 节点【外部公网端口】(客户端连接用): " EXT_NODE_PORT
+read -p "   节点【内部监听端口】[若内外一致直接回车，默认: ${EXT_NODE_PORT}]: " INT_NODE_PORT
+INT_NODE_PORT=${INT_NODE_PORT:-$EXT_NODE_PORT}
 
-# === 基础已用流量垫底（精确支持两位小数，如 12.35、0.58） ===
-read -p "6. 之前已用过的流量(GB) [支持两位小数，新机直接回车填 0]: " INPUT_USED_GB
-USED_GB=${INPUT_USED_GB:-0}
+# --- 订阅端口配置 ---
+read -p "3. 订阅【外部公网端口】(客户端拉取订阅用): " EXT_SUB_PORT
+read -p "   订阅【内部监听端口】[若内外一致直接回车，默认: ${EXT_SUB_PORT}]: " INT_SUB_PORT
+INT_SUB_PORT=${INT_SUB_PORT:-$EXT_SUB_PORT}
 
-# === 直接照抄后台到期时间（支持纯日期如 2026-10-17） ===
-read -p "7. 面板显示的到期时间 [格式示例: 2026-10-17 22:59:42]: " INPUT_DATE
+read -p "4. 客户端显示的卡片名称 [默认: 自建NAT节点]: " INPUT_NAME
+NODE_NAME=${INPUT_NAME:-"自建NAT节点"}
+
+read -p "5. 总流量额度(GB) [纯数字, 默认: 400]: " INPUT_TOTAL
+TRAFFIC_GB=${INPUT_TOTAL:-400}
+
+read -p "6. 已用流量底数(GB) [支持两位小数如 12.35，新机直接填 0]: " INPUT_USED
+USED_GB=${INPUT_USED:-0}
+
+read -p "7. 到期时间 [格式示例 2026-10-18，直接回车默认+30天]: " INPUT_DATE
 if [ -n "$INPUT_DATE" ]; then
     EXPIRE_TIME=$(date -d "$INPUT_DATE" +%s 2>/dev/null || echo "$(( $(date +%s) + 30 * 86400 ))")
 else
@@ -180,58 +142,35 @@ fi
 
 DETECT_IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '{print $5}' | head -n1)
 DETECT_IFACE=${DETECT_IFACE:-"eth0"}
-read -p "8. 流量统计网卡 [默认探测: ${DETECT_IFACE}]: " INPUT_IFACE
+read -p "8. 统计网卡名称 [默认探测: ${DETECT_IFACE}]: " INPUT_IFACE
 NET_IFACE=${INPUT_IFACE:-$DETECT_IFACE}
 
 RAND_TOKEN=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 16)
-read -p "9. 订阅安全 Token [默认随机: ${RAND_TOKEN}]: " INPUT_TOKEN
+read -p "9. 订阅安全 Token [直接回车随机: ${RAND_TOKEN}]: " INPUT_TOKEN
 SUB_TOKEN=${INPUT_TOKEN:-$RAND_TOKEN}
 
-UUID=$(sing-box generate uuid | tr -d '\r\n')
-KEYPAIR=$(sing-box generate reality-keypair)
-PRIVATE_KEY=$(echo "$KEYPAIR" | grep "PrivateKey" | awk '{print $2}' | tr -d '\r\n')
-PUBLIC_KEY=$(echo "$KEYPAIR" | grep "PublicKey" | awk '{print $2}' | tr -d '\r\n')
-SHORT_ID=$(openssl rand -hex 8 | tr -d '\r\n')
+# 现场生成密钥对
+UUID=$(/usr/local/bin/sing-box generate uuid | tr -d '\r\n ')
+KEYPAIR=$(/usr/local/bin/sing-box generate reality-keypair)
+PRIVATE_KEY=$(echo "$KEYPAIR" | grep "PrivateKey" | awk '{print $2}' | tr -d '\r\n ')
+PUBLIC_KEY=$(echo "$KEYPAIR" | grep "PublicKey" | awk '{print $2}' | tr -d '\r\n ')
+SHORT_ID=$(openssl rand -hex 8 | tr -d '\r\n ')
 
 TOTAL_BYTES=$(( TRAFFIC_GB * 1024 * 1024 * 1024 ))
 BASE_USED_BYTES=$(awk "BEGIN {printf \"%.0f\", ${USED_GB} * 1024 * 1024 * 1024}")
 
+# 1. 固化持久化变量
 cat <<EOF> /opt/sing-box/my_env.sh
 export SERVER_IP="${SERVER_IP}"
-export NODE_PORT="${NODE_PORT}"
-export SUB_PORT="${SUB_PORT}"
+export EXT_NODE_PORT="${EXT_NODE_PORT}"
+export INT_NODE_PORT="${INT_NODE_PORT}"
+export EXT_SUB_PORT="${EXT_SUB_PORT}"
+export INT_SUB_PORT="${INT_SUB_PORT}"
 export NODE_NAME="${NODE_NAME}"
-export TRAFFIC_GB="${TRAFFIC_GB}"
-export USED_GB="${USED_GB}"
-export BASE_USED_BYTES="${BASE_USED_BYTES}"
 export SUB_TOKEN="${SUB_TOKEN}"
-export NET_IFACE="${NET_IFACE}"
-export UUID="${UUID}"
-export PRIVATE_KEY="${PRIVATE_KEY}"
-export PUBLIC_KEY="${PUBLIC_KEY}"
-export SHORT_ID="${SHORT_ID}"
-export TOTAL_BYTES="${TOTAL_BYTES}"
-export EXPIRE_TIME="${EXPIRE_TIME}"
 EOF
 
-echo "--------------------------------------------------------"
-echo "[+] 变量自动生成完毕！基础已用流量已锁定为: ${USED_GB} GB (${BASE_USED_BYTES} 字节)"
-echo "[+] 已永久保存到 /opt/sing-box/my_env.sh"
-SH_EOF
-
-bash /root/setup.sh
-```
-
----
-
-### 步骤三：一键部署核心节点与订阅服务
-
-整段复制并粘贴执行。代码会自动引用前面生成的变量，配置 sing-box、标准免括号纯 IP DNS 的客户端 YAML，并拉起 Perl 原生动态流量订阅服务：
-
-```bash
-source /opt/sing-box/my_env.sh
-
-# 1. 写入 sing-box 节点配置（使用 0.0.0.0 避免容器缺 IPv6 导致报错）
+# 2. 写入服务端 sing-box 配置（严格监听内网端口与 IPv4 地址 0.0.0.0）
 cat <<EOF> /opt/sing-box/config.json
 {
   "log": {
@@ -242,7 +181,7 @@ cat <<EOF> /opt/sing-box/config.json
       "type": "vless",
       "tag": "vless-in",
       "listen": "0.0.0.0",
-      "listen_port": ${NODE_PORT},
+      "listen_port": ${INT_NODE_PORT},
       "users": [
         {
           "uuid": "${UUID}",
@@ -275,29 +214,7 @@ cat <<EOF> /opt/sing-box/config.json
 }
 EOF
 
-# 2. 写入 sing-box 服务单元并启动
-cat <<'EOF' > /etc/systemd/system/sing-box.service
-[Unit]
-Description=sing-box service
-After=network.target nss-lookup.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/sing-box run -c /opt/sing-box/config.json
-Restart=always
-RestartSec=3s
-LimitNOFILE=65535
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable --now sing-box
-systemctl restart sing-box
-
-# 3. 写入客户端 YAML（DNS 改用纯 IP 地址，绝不触发任何插件超链接与括号崩溃）
+# 3. 写入客户端纯净 YAML（客户端连接使用公网外部端口，DNS 全面纯 IP 化）
 cat <<EOF> /opt/sing-box/ui/index.html
 port: 7890
 socks-port: 7891
@@ -325,7 +242,7 @@ proxies:
   - name: "${NODE_NAME}"
     type: vless
     server: ${SERVER_IP}
-    port: ${NODE_PORT}
+    port: ${EXT_NODE_PORT}
     uuid: ${UUID}
     network: tcp
     tls: true
@@ -369,45 +286,18 @@ proxy-groups:
       - "国外流量"
       - DIRECT
 
-rule-providers:
-  reject: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/reject.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/reject.txt)", path: ./ruleset/reject.yaml, interval: 86400 }
-  icloud: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/icloud.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/icloud.txt)", path: ./ruleset/icloud.yaml, interval: 86400 }
-  apple: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/apple.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/apple.txt)", path: ./ruleset/apple.yaml, interval: 86400 }
-  google: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/google.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/google.txt)", path: ./ruleset/google.yaml, interval: 86400 }
-  proxy: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/proxy.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/proxy.txt)", path: ./ruleset/proxy.yaml, interval: 86400 }
-  direct: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/direct.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/direct.txt)", path: ./ruleset/direct.yaml, interval: 86400 }
-  gfw: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/gfw.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/gfw.txt)", path: ./ruleset/gfw.yaml, interval: 86400 }
-  tld-not-cn: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/tld-not-cn.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/tld-not-cn.txt)", path: ./ruleset/tld-not-cn.yaml, interval: 86400 }
-  telegramcidr: { type: http, behavior: ipcidr, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/telegramcidr.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/telegramcidr.txt)", path: ./ruleset/telegramcidr.yaml, interval: 86400 }
-  cncidr: { type: http, behavior: ipcidr, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/cncidr.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/cncidr.txt)", path: ./ruleset/cncidr.yaml, interval: 86400 }
-  lancidr: { type: http, behavior: ipcidr, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt)", path: ./ruleset/lancidr.yaml, interval: 86400 }
-
 rules:
-  - RULE-SET,lancidr,DIRECT,no-resolve
-  - RULE-SET,reject,REJECT
   - DOMAIN-SUFFIX,openai.com,AI平台
   - DOMAIN-SUFFIX,chatgpt.com,AI平台
   - DOMAIN-SUFFIX,anthropic.com,AI平台
   - DOMAIN-SUFFIX,claude.ai,AI平台
   - DOMAIN-SUFFIX,youtube.com,国外媒体
   - DOMAIN-SUFFIX,googlevideo.com,国外媒体
-  - DOMAIN-SUFFIX,netflix.com,国外媒体
-  - RULE-SET,icloud,苹果服务
-  - RULE-SET,apple,苹果服务
-  - DOMAIN-SUFFIX,microsoft.com,微软服务
-  - DOMAIN-SUFFIX,windowsupdate.com,微软服务
-  - RULE-SET,google,国外流量
-  - RULE-SET,proxy,国外流量
-  - RULE-SET,gfw,国外流量
-  - RULE-SET,tld-not-cn,国外流量
-  - RULE-SET,telegramcidr,国外流量,no-resolve
-  - RULE-SET,direct,DIRECT
-  - RULE-SET,cncidr,DIRECT
   - GEOIP,CN,DIRECT
   - MATCH,漏网之鱼
 EOF
 
-# 4. 写入支持基础流量垫底、两位小数与 RFC 5987 标准中文字符编码的 Perl 服务
+# 4. 写入 Perl 动态流量统计服务（监听小鸡内部订阅端口）
 cat <<EOF> /opt/sing-box/sub.pl
 use strict;
 use warnings;
@@ -416,7 +306,7 @@ use IO::Socket::INET;
 my \$SECRET_TOKEN = "${SUB_TOKEN}";
 my \$IFACE = "${NET_IFACE}";
 my \$BASE_USED = ${BASE_USED_BYTES};
-my \$PORT = ${SUB_PORT};
+my \$PORT = ${INT_SUB_PORT};
 my \$NODE_NAME = "${NODE_NAME}";
 my \$TOTAL_BYTES = ${TOTAL_BYTES};
 my \$EXPIRE_TIME = ${EXPIRE_TIME};
@@ -472,7 +362,24 @@ while (my \$client = \$server->accept()) {
 }
 EOF
 
-# 5. 写入订阅服务并启动
+# 5. 配置 systemd 系统服务
+cat <<'EOF' > /etc/systemd/system/sing-box.service
+[Unit]
+Description=sing-box service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/sing-box run -c /opt/sing-box/config.json
+Restart=always
+RestartSec=3s
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 cat <<'EOF' > /etc/systemd/system/clash-sub.service
 [Unit]
 Description=Clash Subscription Server
@@ -488,75 +395,73 @@ RestartSec=2s
 WantedBy=multi-user.target
 EOF
 
+# 语法测试与加载启动
+/usr/local/bin/sing-box check -c /opt/sing-box/config.json
 systemctl daemon-reload
-systemctl enable --now clash-sub
+systemctl enable --now sing-box clash-sub
 systemctl restart sing-box clash-sub
+
+echo "--------------------------------------------------------"
+echo "部署完成！内部监听状态验证："
+ss -tulpn | grep -E "(${INT_NODE_PORT}|${INT_SUB_PORT})"
+echo "--------------------------------------------------------"
+SH_EOF
+
+bash /root/universal_deploy.sh
 ```
 
 ---
 
-## 4. 第四部分：查看客户端导入链接与 Clash Verge 导入
+## 4. 第四部分：获取专属订阅并在客户端导入
 
-运行以下命令，系统会自动打印出验证状态和专属链接：
+执行完成后，在控制台运行以下命令输出客户端专属链接：
 
 ```bash
 source /opt/sing-box/my_env.sh
-
-# 检查端口监听（确保两个端口都处于 LISTEN 状态）
-ss -tulpn | grep -E "(${NODE_PORT}|${SUB_PORT})"
-
-echo ""
 echo "=========================================================="
-echo "小鸡配置完成！你的客户端专属导入链接为："
-echo "http://${SERVER_IP}:${SUB_PORT}/token=${SUB_TOKEN}&name=${NODE_NAME}.yaml"
+echo "客户端专属订阅导入链接："
+echo "http://${SERVER_IP}:${EXT_SUB_PORT}/token=${SUB_TOKEN}&name=${NODE_NAME}.yaml"
 echo "=========================================================="
 ```
 
-### 客户端导入方法：
-1. 打开 **Clash Verge**，点击左侧 **“订阅 (Profiles)”**。
-2. 将打印出来的链接粘贴进上方输入框。
-3. 点击 **“导入 (Import)”**。卡片将自动以设定的节点名称命名，并精确显示带有两位小数的真实流量进度条。
+### 客户端导入与使用（以 Clash Verge 为例）：
+1. 复制终端输出的 `http://${SERVER_IP}:${EXT_SUB_PORT}/...` 完整链接。
+2. 打开 **Clash Verge**，进入 **“订阅 (Profiles)”**。
+3. 粘贴到输入框中，点击 **“导入 (Import)”**。
+4. 订阅卡片将自动显示节点名称、到期时间和动态真实流量进度条。
+5. 切换到 **“代理 (Proxies)”** 界面，点击闪电测速即可正常显示绿色延迟。
 
 ---
 
-## 5. 第五部分：核心防阻断技巧（开着梯子也能秒级更新订阅）
+## 5. 核心避坑：开着梯子更新订阅失败的解法
 
-**小白常踩的坑**：很多用户在电脑开着其他梯子/系统代理时，点击订阅卡片的“更新”，会报错提示 `failed to fetch remote profile`。这是因为中间代理屏蔽了非标高位端口（如 `55556`）。
+在电脑已经开启了系统代理（或开着其他机场梯子）的情况下，点击自建订阅的“更新”，很多客户端会报错 `failed to fetch remote profile`。这是因为中间商业代理节点为了安全，通常会拦截非标准的随机高位外部端口。
 
 ### 一劳永逸解法（无需每次手动开关梯子）：
 1. 在 Clash Verge 中打开你平时主力使用的那个订阅卡片，右键点击选择 **“编辑扩展配置 (Edit Rules / Script)”**。
 2. 在规则列表（`rules:`）的最顶部添加一行公网 IP 直连规则：
    ```yaml
    rules:
-     - IP-CIDR,你的小鸡公网IP/32,DIRECT,no-resolve
+     - IP-CIDR,你的NAT小鸡公网IP/32,DIRECT,no-resolve
    ```
 3. 保存并刷新应用。
 
-**生效机制**：  
-当你开着系统代理更新该订阅时，流量会自动绕开梯子，直接走本地物理宽带直连出站，彻底避开商业节点防火墙对高位端口的拦截，秒级拉取成功。
+此时只要拉取或更新该小鸡的订阅，流量便会自动走本地宽带直连出站，彻底避开商业代理节点的端口拦截。
 
 ---
 
-## 6. 常用维护与一键救砖还原
+## 6. 维护与救砖命令
 
-本脚本将你的参数永久保存在了 `/opt/sing-box/my_env.sh` 中。
-
-* **查看你之前设置的全部参数**：
+* **查看当前小鸡保存的配置参数**：
   ```bash
   cat /opt/sing-box/my_env.sh
   ```
-* **一键重启所有服务**：
+* **一键重启两项服务**：
   ```bash
   systemctl restart sing-box clash-sub
   ```
-* **一键无损救砖备份与还原**：
+* **服务运行状态与端口自检**：
   ```bash
-  # 备份当前状态
-  cp -a /opt/sing-box/config.json /opt/sing-box/backup/
-  cp -a /opt/sing-box/sub.pl /opt/sing-box/backup/
-  cp -a /opt/sing-box/ui/index.html /opt/sing-box/backup/
-
-  # 误修改后一键还原
-  cp /opt/sing-box/backup/* /opt/sing-box/
-  systemctl restart sing-box clash-sub
+  systemctl status sing-box --no-pager
+  ss -tulpn | grep -E "(sing-box|perl)"
   ```
