@@ -40,30 +40,35 @@
 
 选择合适的注册认证方式完成登录（支持 Google 或 GitHub 快捷授权）：
 
-![选择注册登录方式](images/02-register-methods.png)
+![选择注册登录方式]<img width="2880" height="1647" alt="图片" src="https://github.com/user-attachments/assets/fd196e13-32c4-4762-af2c-3bb32b9dbe29" />
+
 
 ### 2. 账号充值
 进入用户后台首页：
 
-![独角鲸云控制台首页](images/03-dashboard-home.png)
+![独角鲸云控制台首页]<img width="2880" height="1647" alt="图片" src="https://github.com/user-attachments/assets/14165be5-1fe4-4729-9624-0f41d89993cb" />
+
 
 点击左侧菜单栏的 **“账单充值”**，选择合适的支付方式（支持信用卡、支付宝、微信或加密货币）：
 
-![充值方式与金额选择](images/04-recharge-methods.png)
+![充值方式与金额选择]<img width="2880" height="1647" alt="图片" src="https://github.com/user-attachments/assets/aaed142f-6531-4964-8cb9-0c42e63652dd" />
+
 
 ### 3. 新建实例与选择节点
 点击左侧菜单栏的 **“新建实例”**，在地区列表中选择你需要的国家（例如日本、美国等）：
 
-![选择实例部署地区](images/05-create-region.png)
+![选择实例部署地区]<img width="1024" height="585" alt="图片" src="https://github.com/user-attachments/assets/1fd2cc42-c06c-4f62-9197-cea3af093c75" />
+
 
 滑动页面至下方选择母鸡节点与配置套餐（例如 400G / 500G 流量套餐）：
 
-![选择母鸡与配置规格](images/06-select-node.png)
+![选择母鸡与配置规格]<img width="2880" height="1647" alt="图片" src="https://github.com/user-attachments/assets/dd62b50a-41e8-4186-a4c2-420d3df41781" />
+
 
 ### 4. 系统镜像选择
 系统选择 **Debian (Podman)**。密码直接使用系统随机生成的即可（此密码仅用于传统 SSH，本教程使用网页端免密控制台，无需死记）：
 
-![选择 Debian 操作系统](images/07-os-debian.png)
+![选择 Debian 操作系统]<img width="1091" height="448" alt="图片" src="https://github.com/user-attachments/assets/2bc73cb0-c22a-422b-89da-91237b58fd5c" />
 
 点击确定并创建，等待几十秒直到实例状态显示为正常运行。
 
@@ -77,7 +82,8 @@
 
 进入实例详情页，下滑找到 **“端口转发”**，点击 **“+ 添加规则”**：
 
-![端口转发规则列表](images/08-port-forward.png)
+![端口转发规则列表]<img width="1288" height="441" alt="图片" src="https://github.com/user-attachments/assets/c364fe94-c038-4c5d-8936-6629a70d8c75" />
+
 
 请依次添加两条规则：
 * **规则 1（给节点连接使用）**：
