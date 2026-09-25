@@ -1,82 +1,147 @@
-# NAT小鸡搭建教程（开着梯子导入，更新不了）
+# NAT小鸡极简自建节点与动态流量订阅指南
 
-> 针对 **64MB ~ 512MB 极小内存 NAT / 独享小鸡** 打造的纯原生、零额外依赖一键自建与订阅方案。  
-> 采用 **官方静态编译 sing-box (VLESS-REALITY)** + **系统原生 Perl 5 极轻量动态流量订阅**。  
-> **拒绝死机**：常驻内存仅约 15MB，杜绝 OOM。  
-> **直击痛点**：彻底解决“开着梯子/代理更新订阅报错 `failed to fetch remote profile`”以及“高位端口被拦截”。
-
----
-
-## 核心痛点解析：为什么“开着梯子导入更新不了”？
-
-1. **商业代理/机场防火墙拦截高位非标端口**：  
-   当你开着全局代理或 TUN 模式时，请求会通过节点出站。商业节点防火墙通常只允许向外发起 `80` 或 `443` 的 HTTP/HTTPS 请求。而 NAT 小鸡的订阅端口一般是几万的高位端口（如 `59688`、`45001`），且走的是纯文本 HTTP，直接会被中间代理丢包或切断连接，导致客户端提示 `failed to fetch remote profile`。
-2. **中间代理重写请求行**：  
-   很多代理服务在转发时会将 `/token=xxx` 改写为绝对 URI，导致严格匹配的轻量 Web 守护直接拒连。
-
-### 优雅解决方案：
-- **服务端放宽匹配**：脚本使用全路径模糊匹配，无论中间代理是否改写 URI，只要携带正确 Token 一律正常吐出配置。
-- **客户端一劳永逸直连（免关梯子）**：在本地代理软件规则中把小鸡 IP 设为 `DIRECT` 直连，以后无论梯子开不开，更新订阅都会秒拉取。
+> **适用场景**：内存仅有 64MB ~ 512MB 的 NAT VPS、独立 IP VPS。  
+> **核心组件**：官方静态编译 `sing-box` (VLESS-REALITY-Vision) + 原生 `Perl 5` 极轻量订阅守护进程。  
+> **设计目标**：常驻内存小于 15MB、不爆内存宕机、读取系统内核真实流量扣额、自带到期时间与全套精细分流规则，并彻底解决**“开着梯子/全局代理时更新订阅报 failed to fetch remote profile”**的问题。
 
 ---
 
-## 全自动化一键部署脚本（终端直接粘贴运行）
+## 目录
+- [0. 核心原理解析：为什么开着代理会更新失败？](#0-核心原理解析为什么开着代理会更新失败)
+- [1. 部署前准备：记录你的小鸡参数](#1-部署前准备记录你的小鸡参数)
+- [2. 步骤一：安装与验证基础环境](#2-步骤一安装与验证基础环境)
+- [3. 步骤二：环境变量定义（配置参数注入）](#3-步骤二环境变量定义配置参数注入)
+- [4. 步骤三：生成专属 REALITY 密钥与用户凭据](#4-步骤三生成专属-reality-密钥与用户凭据)
+- [5. 步骤四：配置并启动 sing-box 服务端](#5-步骤四配置并启动-sing-box-服务端)
+- [6. 步骤五：生成客户端分流配置文件 (LoyalSoldier)](#6-步骤五生成客户端分流配置文件-loyalsoldier)
+- [7. 步骤六：部署原生 Perl 动态流量订阅服务端](#7-步骤六部署原生-perl-动态流量订阅服务端)
+- [8. 步骤七：本地链路验证与客户端订阅导入](#8-步骤七本地链路验证与客户端订阅导入)
+- [9. 核心实战技巧：如何实现开着代理也能秒级更新订阅？](#9-核心实战技巧如何实现开着代理也能秒级更新订阅)
+- [10. 运维与灾备：配置备份与一键无损回滚](#10-运维与灾备配置备份与一键无损回滚)
 
-登录新小鸡的 root 终端，直接**完整复制**并**粘贴执行**下面这一整段脚本：
+---
+
+## 0. 核心原理解析：为什么开着代理会更新失败？
+
+在客户端（如 Clash Verge、Flclash、v2rayN）开启“系统代理”或“TUN 模式”时，本机所有向外的网络请求都会被代理核心接管，并转发至当前连接的代理节点。
+
+此时拉取自建订阅经常失败，主要有两个原因：
+1. **商业节点防火墙拦截高位端口**：绝大多数商业节点或机场节点的出站安全策略只放行 `80` (标准 HTTP) 和 `443` (标准 HTTPS)。NAT 小鸡分配给订阅服务的端口通常为高位端口（如 `59688`、`45001` 等），且传输的是纯明文 HTTP 流量，直接被商业节点的安全策略切断或丢弃，导致客户端报 `failed to fetch remote profile`。
+2. **中间代理改写 HTTP 请求行**：许多代理服务器在转发 HTTP 请求时，会将相对路径（如 `GET /token=... HTTP/1.1`）改写为绝对 URI（如 `GET http://1.2.3.4:59688/token=... HTTP/1.1`）。如果服务端的脚本匹配规则过于严苛，就会直接判定为非法路径并关闭连接。
+
+### 对应解决策略：
+- **服务端放宽鉴权**：Perl 守护进程使用子字符串匹配算法，只要请求行中包含正确的 Token 字符串即放行，无论路径是否被中间代理改写都能正常返回。
+- **客户端配置直连规则（推荐）**：在本地客户端的规则库中，将该小鸡的公网 IP 写入直连规则（`DIRECT`）。当更新订阅时，流量会绕开当前挂着的代理，走本地物理宽带直连出站，彻底避开高位端口拦截。
+
+---
+
+## 1. 部署前准备：记录你的小鸡参数
+
+在动手前，新建一个文本记录以下参数，后续代码中的变量会用到：
+
+| 参数项 | 说明 | 示例值 |
+| :--- | :--- | :--- |
+| **`SERVER_IP`** | 小鸡的公网 IPv4 | `66.154.108.15` |
+| **`NODE_PORT`** | 节点映射端口 (VLESS-REALITY) | `59689` |
+| **`SUB_PORT`** | 订阅映射端口 (HTTP 订阅) | `59688` |
+| **`NODE_NAME`** | 客户端节点与卡片显示的名称 | `日本自建（400g）` |
+| **`TRAFFIC_GB`** | 计划展示的总额度（单位：GB） | `400` |
+| **`SUB_TOKEN`** | 防全网端口扫描探测的自定义密码串 | `jp_token_8899` |
+| **`NET_IFACE`** | 流量统计网卡名称（运行 `ip -br link` 查看） | `eth0` |
+
+---
+
+## 2. 步骤一：安装与验证基础环境
+
+登录 VPS 终端，运行以下命令安装基础组件并获取官方静态 `sing-box`：
 
 ```bash
-bash -c "$(cat <<'SCRIPT_EOF'
-#!/usr/bin/env bash
-set -e
+# 1. 更新软件包列表并安装必要基础工具
+apt update && apt install -y curl perl openssl
 
-clear
-echo "=========================================================="
-echo "    NAT小鸡 VLESS-REALITY + 原生Perl订阅 一键安装脚本     "
-echo "=========================================================="
-
-# 1. 自动探测公网 IPv4
-AUTO_IP=$(curl -s4m 5 [https://api.ipify.org](https://api.ipify.org) || curl -s4m 5 [https://icanhazip.com](https://icanhazip.com) || echo "")
-read -p "请输入本机公网 IPv4 地址 [默认: ${AUTO_IP}]: " INPUT_IP
-SERVER_IP=${INPUT_IP:-$AUTO_IP}
-if [ -z "$SERVER_IP" ]; then
-    echo "[-] 错误: 未能获取到公网 IP，请手动输入！"
-    exit 1
+# 2. 检查并安装官方静态编译的 sing-box (若已安装则跳过)
+if ! command -v sing-box &> /dev/null; then
+    echo "正在安装官方静态 sing-box..."
+    ARCH=$(uname -m)
+    if [ "$ARCH" = "x86_64" ]; then
+        SB_ARCH="amd64"
+    elif [ "$ARCH" = "aarch64" ]; then
+        SB_ARCH="arm64"
+    else
+        SB_ARCH="amd64"
+    fi
+    curl -Lo /usr/local/bin/sing-box [https://github.com/SagerNet/sing-box/releases/download/v1.11.4/sing-box-1.11.4-linux-$](https://github.com/SagerNet/sing-box/releases/download/v1.11.4/sing-box-1.11.4-linux-$){SB_ARCH}.tar.gz
+    tar -zxvf /usr/local/bin/sing-box -C /tmp/
+    mv /tmp/sing-box-*/sing-box /usr/local/bin/sing-box
+    chmod +x /usr/local/bin/sing-box
+    rm -rf /tmp/sing-box*
 fi
 
-# 2. 交互输入端口与信息
-read -p "请输入节点映射端口 (VLESS-REALITY, 如 59689): " NODE_PORT
-read -p "请输入订阅映射端口 (HTTP订阅, 如 59688): " SUB_PORT
-read -p "请输入计划展示的总额度 (单位GB, 如 400): " TRAFFIC_GB
-read -p "请输入节点与订阅卡片显示名称 [默认: 日本自建（400g）]: " INPUT_NAME
-NODE_NAME=${INPUT_NAME:-"日本自建（400g）"}
+# 3. 验证程序版本
+sing-box version
+perl -v | head -n 2
+```
 
-RAND_TOKEN=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 16)
-read -p "请输入订阅防扫描 Token [默认随机生成: ${RAND_TOKEN}]: " INPUT_TOKEN
-SUB_TOKEN=${INPUT_TOKEN:-$RAND_TOKEN}
+---
 
-# 3. 自动探测主网卡
-DEFAULT_IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '{print $5}' | head -n1)
-DEFAULT_IFACE=${DEFAULT_IFACE:-"eth0"}
-read -p "请输入流量统计网卡名称 [默认探测: ${DEFAULT_IFACE}]: " INPUT_IFACE
-NET_IFACE=${INPUT_IFACE:-$DEFAULT_IFACE}
+## 3. 步骤二：环境变量定义（配置参数注入）
 
-echo ""
-echo "[+] 正在自动生成安全凭证 (UUID、REALITY密钥对、ShortID)..."
+将你在“步骤 1”中确定的实际参数填入下方的变量定义中，然后在终端中整段粘贴运行。后续步骤会自动调用这些变量，无需手动修改配置文件。
 
-# 4. 自动生成密钥
+```bash
+# =================【用户参数自定义区域】=================
+SERVER_IP="66.154.108.15"            # 替换为你小鸡的公网 IPv4
+NODE_PORT="59689"                    # 替换为你小鸡的节点外部端口
+SUB_PORT="59688"                     # 替换为你小鸡的订阅外部端口
+NODE_NAME="日本自建（400g）"         # 替换为你想要显示的节点名称
+TRAFFIC_GB=400                       # 替换为总配额 (单位: GB)
+SUB_TOKEN="jp_token_8899"            # 替换为你自定义的防扫 Token
+NET_IFACE="eth0"                     # 统计流量的网卡名 (通过 ip -br link 查看)
+# ========================================================
+
+# 自动换算总字节数与到期时间戳 (默认设为当前时间往后推 30 天)
+TOTAL_BYTES=$(( TRAFFIC_GB * 1024 * 1024 * 1024 ))
+EXPIRE_TIME=$(( $(date +%s) + 30 * 86400 ))
+
+# 建立程序与备份目录
+mkdir -p /opt/sing-box/ui /opt/sing-box/backup
+```
+
+---
+
+## 4. 步骤三：生成专属 REALITY 密钥与用户凭据
+
+执行以下命令，脚本会自动生成 `UUID`、REALITY 密钥对及 `Short ID`，并将它们暂存在当前终端的环境变量中：
+
+```bash
+# 1. 生成并捕获 UUID
 UUID=$(sing-box generate uuid)
+
+# 2. 生成并解析 REALITY 密钥对
 KEYPAIR=$(sing-box generate reality-keypair)
 PRIVATE_KEY=$(echo "$KEYPAIR" | grep "PrivateKey" | awk '{print $2}')
 PUBLIC_KEY=$(echo "$KEYPAIR" | grep "PublicKey" | awk '{print $2}')
+
+# 3. 生成 8 字节十六进制短 ID
 SHORT_ID=$(openssl rand -hex 8)
 
-TOTAL_BYTES=$(awk -v gb="$TRAFFIC_GB" 'BEGIN {printf "%.0f", gb * 1024 * 1024 * 1024}')
-EXPIRE_TIME=$(($(date +%s) + 30 * 86400))
+# 4. 在终端展示生成的凭据 (建议截图或保存在本地备忘录中)
+echo "================ 你的专属安全凭证 ================"
+echo "UUID        : ${UUID}"
+echo "PrivateKey  : ${PRIVATE_KEY}"
+echo "PublicKey   : ${PUBLIC_KEY}"
+echo "Short ID    : ${SHORT_ID}"
+echo "=================================================="
+```
 
-# 建立专属目录并做运行备份
-mkdir -p /opt/sing-box/ui /opt/sing-box/backup
+---
 
-# 5. 写入 sing-box 服务端配置
+## 5. 步骤四：配置并启动 sing-box 服务端
+
+执行以下命令，将自动引用上述变量生成 `sing-box` 配置文件，并配置 `systemd` 服务开机自启：
+
+```bash
+# 1. 写入 sing-box 服务端核心配置
 cat <<EOF> /opt/sing-box/config.json
 {
   "log": {
@@ -120,7 +185,40 @@ cat <<EOF> /opt/sing-box/config.json
 }
 EOF
 
-# 6. 写入客户端分流 YAML 模板 (集成 LoyalSoldier 精细规则)
+# 2. 写入 systemd 守护进程文件
+cat <<'EOF' > /etc/systemd/system/sing-box.service
+[Unit]
+Description=sing-box service
+After=network.target nss-lookup.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/sing-box run -c /opt/sing-box/config.json
+Restart=always
+RestartSec=3s
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# 3. 加载并启动 sing-box
+systemctl daemon-reload
+systemctl enable --now sing-box
+systemctl restart sing-box
+
+# 4. 验证运行状态 (应显示 active running)
+systemctl status sing-box --no-pager
+```
+
+---
+
+## 6. 步骤五：生成客户端分流配置文件 (LoyalSoldier)
+
+此步骤生成供客户端拉取的完整 Clash 规则配置文件，并保存至 `/opt/sing-box/ui/index.html`。该配置集成了 **LoyalSoldier** 规则集，包含国内直连、海外代理、微软/苹果服务分流及 AI 平台独立策略：
+
+```bash
 cat <<EOF> /opt/sing-box/ui/index.html
 port: 7890
 socks-port: 7891
@@ -272,8 +370,16 @@ rules:
   - GEOIP,CN,DIRECT
   - MATCH,漏网之鱼
 EOF
+```
 
-# 7. 写入原生 Perl 订阅服务端
+---
+
+## 7. 步骤六：部署原生 Perl 动态流量订阅服务端
+
+执行以下命令，部署一个常驻内存仅约 1.5MB 的纯原生 Perl 5 HTTP 订阅守护进程。它会实时抓取 Linux 内核文件 `/proc/net/dev` 中的字节数，并在客户端请求时附带 `Subscription-Userinfo` 头部信息下发：
+
+```bash
+# 1. 写入 Perl 订阅服务端脚本
 cat <<EOF> /opt/sing-box/sub.pl
 use strict;
 use warnings;
@@ -328,7 +434,7 @@ while (my \$client = \$server->accept()) {
 }
 EOF
 
-# 8. 写入 Systemd 服务
+# 2. 写入 systemd 守护配置
 cat <<'EOF' > /etc/systemd/system/clash-sub.service
 [Unit]
 Description=Clash Subscription Server
@@ -344,35 +450,84 @@ RestartSec=2s
 WantedBy=multi-user.target
 EOF
 
-# 备份初始可用状态
-cp /opt/sing-box/config.json /opt/sing-box/backup/config.json.bak
-cp /opt/sing-box/sub.pl /opt/sing-box/backup/sub.pl.bak
-cp /opt/sing-box/ui/index.html /opt/sing-box/backup/index.html.bak
-
-# 启动并使能服务
+# 3. 启动订阅守护进程
 systemctl daemon-reload
-systemctl enable --now sing-box clash-sub
-systemctl restart sing-box clash-sub
+systemctl enable --now clash-sub
+systemctl restart clash-sub
 
-clear
-echo "=========================================================="
-echo "               小鸡部署成功！配置信息如下                 "
-echo "=========================================================="
-echo "节点名称:  ${NODE_NAME}"
-echo "公网 IP :  ${SERVER_IP}"
-echo "节点端口:  ${NODE_PORT} (VLESS-REALITY)"
-echo "订阅端口:  ${SUB_PORT} (原生 Perl 动态流量)"
-echo "已设额度:  ${TRAFFIC_GB} GB"
+# 4. 验证运行状态
+systemctl status clash-sub --no-pager
+```
+
+---
+
+## 8. 步骤七：本地链路验证与客户端订阅导入
+
+### 1. 服务端本地验证
+在终端执行以下命令，验证端口监听与订阅返回：
+
+```bash
+# 验证端口监听状态
+ss -tulpn | grep -E "(${NODE_PORT}|${SUB_PORT})"
+
+# 本地模拟拉取测试 (正常应返回 HTTP/1.1 200 OK 且附带 Subscription-Userinfo)
+curl -i "[http://127.0.0.1](http://127.0.0.1):${SUB_PORT}/token=${SUB_TOKEN}" | head -n 8
+
 echo ""
-echo "专属客户端导入链接 (复制直接导入 Clash / Clash Verge):"
+echo "=========================================================="
+echo "配置成功！客户端订阅链接为："
 echo "http://${SERVER_IP}:${SUB_PORT}/token=${SUB_TOKEN}&name=${NODE_NAME}.yaml"
-echo ""
-echo "VLESS 单节点直链 (URI):"
-echo "vless://${UUID}@${SERVER_IP}:${NODE_PORT}?security=reality&encryption=none&pbk=${PUBLIC_KEY}&headerType=none&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni=gateway.icloud.com&sid=${SHORT_ID}#${NODE_NAME}"
 echo "=========================================================="
-echo "【避坑提示】如果开着梯子更新报错 failed to fetch remote profile："
-echo "只要在代理客户端的规则中，把 ${SERVER_IP} 设为 DIRECT（直连），"
-echo "以后开着梯子也能秒拉取更新，免去开关梯子的烦恼！"
-echo "=========================================================="
-SCRIPT_EOF
-)"
+```
+
+### 2. 客户端导入操作
+1. 打开客户端（如 Clash Verge Rev、Flclash 等）。
+2. 在“订阅链接”输入框中粘贴上面打印的完整 URL：
+   ```text
+   http://你的公网IP:你的订阅端口/token=你的Token&name=你的节点名称.yaml
+   ```
+3. 点击“导入”。客户端将自动锁定卡片标题，并显示实时的流量额度进度条与到期时间。
+
+---
+
+## 9. 核心实战技巧：如何实现开着代理也能秒级更新订阅？
+
+如果你平时开着全局代理或商业 VPN，直接在客户端点击“更新订阅”时，可能会遇到 `failed to fetch remote profile`。这是因为中间代理拦截了小鸡的高位端口。
+
+### 一劳永逸的解决方案（无需关闭代理）：
+在本地客户端中，把该小鸡的公网 IP 加入到直连规则中。以 Clash Verge Rev 为例：
+1. 点击客户端左侧的 **订阅 (Profiles)**。
+2. 找到你平时主力使用的代理订阅卡片，右键选择 **编辑扩展配置 / 脚本 (Edit Rules / Script)**，或进入全局规则配置。
+3. 在 `rules:` 列表的最顶部，添加一条 IP-CIDR 直连规则：
+   ```yaml
+   rules:
+     - IP-CIDR,你的小鸡公网IP/32,DIRECT,no-resolve
+   ```
+4. 保存配置并重新应用。
+
+**生效机制**：  
+当你开着系统代理更新该订阅时，客户端会优先匹配此规则，使发往该小鸡公网 IP 的请求直接走你本机的物理网络出站，不再经过商业节点转发，从而彻底规避非标端口阻断。
+
+---
+
+## 10. 运维与灾备：配置备份与一键无损回滚
+
+### 1. 建立初始状态备份
+在 VPS 终端执行以下命令，保存当前正常运行的所有配置：
+
+```bash
+mkdir -p /opt/sing-box/backup
+cp -a /opt/sing-box/config.json /opt/sing-box/backup/config.json.bak
+cp -a /opt/sing-box/sub.pl /opt/sing-box/backup/sub.pl.bak
+cp -a /opt/sing-box/ui/index.html /opt/sing-box/backup/index.html.bak
+```
+
+### 2. 故障一键还原
+如果后续误修改了任何配置导致服务异常，执行以下命令即可恢复初始状态：
+
+```bash
+cp /opt/sing-box/backup/config.json.bak /opt/sing-box/config.json
+cp /opt/sing-box/backup/sub.pl.bak /opt/sing-box/sub.pl
+cp /opt/sing-box/backup/index.html.bak /opt/sing-box/ui/index.html
+systemctl restart sing-box clash-sub
+```
