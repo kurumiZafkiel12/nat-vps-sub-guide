@@ -3,13 +3,13 @@
 > **适用场景**：独角鲸云、碳云、微基主机等所有 NAT VPS 商家及普通独立 IP VPS。  
 > **支持架构**：x86_64 (amd64) / aarch64 (arm64)，系统推荐 Debian 11/12/13 或 Ubuntu。  
 > **核心组合**：官方静态 `sing-box` (VLESS-REALITY-Vision) + 原生 `Perl 5` 极轻量动态流量订阅。  
-> **设计特点**：分步明确、参数高度可自定义、支持内外端口分离映射、完全免疫浏览器翻译插件篡改与网页终端粘贴截断。
+> **设计特点**：图文分步明确、参数高度可自定义、支持内外端口分离映射、完全免疫浏览器翻译插件篡改与网页终端粘贴截断。
 
 ---
 
 ## 目录
 - [0. 什么是 NAT 小鸡？（通俗科普）](#0-什么是-nat-小鸡通俗科普)
-- [1. 第一部分：平台开机与端口转发配置](#1-第一部分平台开机与端口转发配置)
+- [1. 第一部分：平台开机与端口转发配置（以独角鲸云为例）](#1-第一部分平台开机与端口转发配置以独角鲸云为例)
 - [2. 第二部分：NAT 端口转发规则确认（核心关键）](#2-第二部分nat-端口转发规则确认核心关键)
 - [3. 第三部分：分步自选部署](#3-第三部分分步自选部署)
   - [步骤一：安装核心基础工具与内核下载](#步骤一安装核心基础工具与内核下载)
@@ -33,18 +33,49 @@
 
 ---
 
-## 1. 第一部分：平台开机与端口转发配置
+## 1. 第一部分：平台开机与端口转发配置（以独角鲸云为例）
 
-1. 打开独角鲸云平台入口：`https://dash.fuckip.me/login`，完成注册与登录。
-2. 充值后点击 **“新建实例”**，选择合适的地区（如日本、美国）与节点套餐。
-3. 系统镜像选择 **Debian (Podman)**。密码使用随机生成即可。
-4. 点击确定并创建，等待几十秒直到实例状态显示为正常运行。
+### 1. 访问网站与注册账号
+打开独角鲸云平台入口：`https://dash.fuckip.me/login`，点击 **“立即注册”**（已有账号可直接登录）。
+
+![独角鲸云登录与注册入口](https://github.com/user-attachments/assets/eece47e0-a361-4072-932c-3cb961d44742)
+
+选择合适的注册认证方式完成登录（支持 Google 或 GitHub 快捷授权）：
+
+![选择注册登录方式](https://github.com/user-attachments/assets/fd196e13-32c4-4762-af2c-3bb32b9dbe29)
+
+### 2. 账号充值
+进入用户后台首页：
+
+![独角鲸云控制台首页](https://github.com/user-attachments/assets/14165be5-1fe4-4729-9624-0f41d89993cb)
+
+点击左侧菜单栏的 **“账单充值”**，选择合适的支付方式（支持信用卡、支付宝、微信或加密货币）：
+
+![充值方式与金额选择](https://github.com/user-attachments/assets/aaed142f-6531-4964-8cb9-0c42e63652dd)
+
+### 3. 新建实例与选择节点
+点击左侧菜单栏的 **“新建实例”**，在地区列表中选择你需要的国家（例如日本、美国等）：
+
+![选择实例部署地区](https://github.com/user-attachments/assets/1fd2cc42-c06c-4f62-9197-cea3af093c75)
+
+滑动页面至下方选择母鸡节点与配置套餐（例如 400G / 500G 流量套餐）：
+
+![选择母鸡与配置规格](https://github.com/user-attachments/assets/dd62b50a-41e8-4186-a4c2-420d3df41781)
+
+### 4. 系统镜像选择
+系统选择 **Debian (Podman)**。密码直接使用系统随机生成的即可（此密码仅用于传统 SSH，本教程使用网页端免密控制台，无需死记）：
+
+![选择 Debian 操作系统](https://github.com/user-attachments/assets/2bc73cb0-c22a-422b-89da-91237b58fd5c)
+
+点击确定并创建，等待几十秒直到实例状态显示为正常运行。
 
 ---
 
 ## 2. 第二部分：NAT 端口转发规则确认（核心关键）
 
 进入实例详情页，下滑找到 **“端口转发”**，点击 **“+ 添加规则”**，确保有两个可用的 TCP 映射规则：
+
+![端口转发规则列表](https://github.com/user-attachments/assets/c364fe94-c038-4c5d-8936-6629a70d8c75)
 
 请依次添加两条规则（建议内外端口保持一致，例如分配 `23456` 和 `34567`）：
 * **规则 1（给节点连接使用）**：
@@ -62,13 +93,15 @@
 
 在实例详情页的右侧操作区，点击 **“控制台”** 按钮进入网页终端：
 
+![点击控制台进入Web终端](https://github.com/user-attachments/assets/c1ab8281-ca61-4fc4-99b2-253d83deb611)
+
 ### 步骤一：安装核心基础工具与内核下载
 
-整段复制并粘贴执行。为彻底规避网页终端的粘贴乱码和翻译插件篡改，这里全采用纯净指令与 Base64 编码下载：
+整段复制并粘贴执行。为彻底规避网页终端的粘贴乱码和翻译插件篡改，这里加入了非交互安装模式并全采用纯净指令与 Base64 编码下载：
 
 ```bash
 export DEBIAN_FRONTEND=noninteractive
-apt update -y && apt install -y curl perl openssl procps jq bc
+apt update -y && apt install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" curl perl openssl procps jq bc
 
 ARCH_RAW=$(uname -m)
 case "$ARCH_RAW" in
