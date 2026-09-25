@@ -12,7 +12,7 @@
 - [2. 第二部分：NAT 端口转发规则配置（核心关键）](#2-第二部分nat-端口转发规则配置核心关键)
 - [3. 第三部分：进入控制台与交互式部署服务](#3-第三部分进入控制台与交互式部署服务)
   - [步骤一：安装核心依赖环境](#步骤一安装核心依赖环境)
-  - [步骤二：参数交互输入与变量持久化创建](#步骤二参数交互输入与变量持久化创建)
+  - [步骤二：参数交互输入与变量持久化创建（支持两位小数）](#步骤二参数交互输入与变量持久化创建支持两位小数)
   - [步骤三：一键部署核心节点与订阅服务](#步骤三一键部署核心节点与订阅服务)
 - [4. 第四部分：查看客户端导入链接与 Clash Verge 导入](#4-第四部分查看客户端导入链接与-clash-verge-导入)
 - [5. 第五部分：核心防阻断技巧（开着梯子也能秒级更新订阅）](#5-第五部分核心防阻断技巧开着梯子也能秒级更新订阅)
@@ -112,11 +112,11 @@
 直接复制并粘贴执行以下命令，安装依赖工具及官方静态 `sing-box`：
 
 ```bash
-apt update && apt install -y curl perl openssl jq
+apt update && apt install -y curl perl openssl jq bc
 
 if ! command -v sing-box &> /dev/null; then
     ARCH=$(dpkg --print-architecture)
-    URL="https://github.com/SagerNet/sing-box/releases/download/v1.11.4/sing-box-1.11.4-linux-${ARCH}.tar.gz"
+    URL="[https://github.com/SagerNet/sing-box/releases/download/v1.11.4/sing-box-1.11.4-linux-$](https://github.com/SagerNet/sing-box/releases/download/v1.11.4/sing-box-1.11.4-linux-$){ARCH}.tar.gz"
     curl -fsSL -o /tmp/sb.tar.gz "$URL"
     tar -zxvf /tmp/sb.tar.gz -C /tmp/
     mv /tmp/sing-box-*/sing-box /usr/local/bin/sing-box
@@ -130,7 +130,7 @@ perl -v | head -n 2
 
 ---
 
-### 步骤二：参数交互输入与变量持久化创建
+### 步骤二：参数交互输入与变量持久化创建（支持两位小数）
 
 整段复制并粘贴到控制台回车。脚本会自动探测公网 IP 与真实网卡名、自动生成 UUID、Reality 密钥对与防扫 Token。遇到需要确认的项，**终端会逐条停下来让你输入**（若直接按回车则采用默认值）：
 
@@ -140,27 +140,41 @@ cat <<'SH_EOF' > /root/setup.sh
 clear
 mkdir -p /opt/sing-box/ui /opt/sing-box/backup
 
-DETECT_IP=$(curl -s4m 5 https://api.ipify.org || echo "")
-echo "--------------------------------------------------------"
-read -p "1. 确认公网 IP [默认: ${DETECT_IP}]: " INPUT_IP
+DETECT_IP=$(curl -s4m 5 [https://api.ipify.org](https://api.ipify.org) || echo "")
+echo "========================================================"
+echo "          独角鲸云 NAT VPS 智能参数配置引导            "
+echo "========================================================"
+
+read -p "1. 确认公网 IP [默认探测: ${DETECT_IP}]: " INPUT_IP
 SERVER_IP=${INPUT_IP:-$DETECT_IP}
 
 read -p "2. 独角鲸云分配给节点的外部端口 (VLESS): " NODE_PORT
 read -p "3. 独角鲸云分配给订阅的外部端口 (HTTP): " SUB_PORT
 read -p "4. 客户端显示的卡片名称 [默认: 日本自建（400g）]: " INPUT_NAME
 NODE_NAME=${INPUT_NAME:-"日本自建（400g）"}
-read -p "5. 流量额度(GB) [默认: 400]: " INPUT_GB
+
+read -p "5. 总流量额度(GB) [看面板填纯数字, 默认: 400]: " INPUT_GB
 TRAFFIC_GB=${INPUT_GB:-400}
-read -p "6. 到期天数 [默认: 30]: " INPUT_DAYS
-EXPIRE_DAYS=${INPUT_DAYS:-30}
+
+# === 基础已用流量垫底（精确支持两位小数，如 12.35、0.58） ===
+read -p "6. 之前已用过的流量(GB) [支持两位小数，新机直接回车填 0]: " INPUT_USED_GB
+USED_GB=${INPUT_USED_GB:-0}
+
+# === 直接照抄后台到期时间 ===
+read -p "7. 面板显示的到期时间 [格式示例: 2026-10-17 22:59:42]: " INPUT_DATE
+if [ -n "$INPUT_DATE" ]; then
+    EXPIRE_TIME=$(date -d "$INPUT_DATE" +%s 2>/dev/null || echo "$(( $(date +%s) + 30 * 86400 ))")
+else
+    EXPIRE_TIME=$(( $(date +%s) + 30 * 86400 ))
+fi
 
 DETECT_IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '{print $5}' | head -n1)
 DETECT_IFACE=${DETECT_IFACE:-"eth0"}
-read -p "7. 流量网卡名 [默认: ${DETECT_IFACE}]: " INPUT_IFACE
+read -p "8. 流量统计网卡 [默认探测: ${DETECT_IFACE}]: " INPUT_IFACE
 NET_IFACE=${INPUT_IFACE:-$DETECT_IFACE}
 
 RAND_TOKEN=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 16)
-read -p "8. 订阅安全 Token [默认: ${RAND_TOKEN}]: " INPUT_TOKEN
+read -p "9. 订阅安全 Token [默认随机: ${RAND_TOKEN}]: " INPUT_TOKEN
 SUB_TOKEN=${INPUT_TOKEN:-$RAND_TOKEN}
 
 UUID=$(sing-box generate uuid)
@@ -170,14 +184,18 @@ PUBLIC_KEY=$(echo "$KEYPAIR" | grep "PublicKey" | awk '{print $2}')
 SHORT_ID=$(openssl rand -hex 8)
 
 TOTAL_BYTES=$(( TRAFFIC_GB * 1024 * 1024 * 1024 ))
-EXPIRE_TIME=$(( $(date +%s) + EXPIRE_DAYS * 86400 ))
 
-cat <<EOF > /opt/sing-box/my_env.sh
+# 使用 awk 精确将两位小数 GB 换算为精确字节整数
+BASE_USED_BYTES=$(awk "BEGIN {printf \"%.0f\", ${USED_GB} * 1024 * 1024 * 1024}")
+
+cat <<EOF> /opt/sing-box/my_env.sh
 export SERVER_IP="${SERVER_IP}"
 export NODE_PORT="${NODE_PORT}"
 export SUB_PORT="${SUB_PORT}"
 export NODE_NAME="${NODE_NAME}"
 export TRAFFIC_GB="${TRAFFIC_GB}"
+export USED_GB="${USED_GB}"
+export BASE_USED_BYTES="${BASE_USED_BYTES}"
 export SUB_TOKEN="${SUB_TOKEN}"
 export NET_IFACE="${NET_IFACE}"
 export UUID="${UUID}"
@@ -189,7 +207,8 @@ export EXPIRE_TIME="${EXPIRE_TIME}"
 EOF
 
 echo "--------------------------------------------------------"
-echo "[+] 变量创建完毕，已保存到 /opt/sing-box/my_env.sh！"
+echo "[+] 变量自动生成完毕！基础已用流量已锁定为: ${USED_GB} GB (${BASE_USED_BYTES} 字节)"
+echo "[+] 已永久保存到 /opt/sing-box/my_env.sh"
 SH_EOF
 
 bash /root/setup.sh
@@ -351,7 +370,7 @@ rules:
   - MATCH,漏网之鱼
 EOF
 
-# 4. 写入原生 Perl 动态流量订阅服务端 (自动读取 /proc/net/dev)
+# 4. 写入支持基础流量垫底与高精度小数折算的 Perl 动态流量订阅服务端
 cat <<EOF> /opt/sing-box/sub.pl
 use strict;
 use warnings;
@@ -359,6 +378,7 @@ use IO::Socket::INET;
 
 my \$SECRET_TOKEN = "${SUB_TOKEN}";
 my \$IFACE = "${NET_IFACE}";
+my \$BASE_USED = ${BASE_USED_BYTES};
 
 sub get_network_traffic {
     my (\$rx_curr, \$tx_curr) = (0, 0);
@@ -372,7 +392,9 @@ sub get_network_traffic {
         }
         close \$fh;
     }
-    return (\$rx_curr, \$tx_curr);
+    # 将网卡当前产生的字节数与历史底数精确合并
+    my \$total_rx = \$rx_curr + \$BASE_USED;
+    return (\$total_rx, \$tx_curr);
 }
 
 my \$file = '/opt/sing-box/ui/index.html';
@@ -449,7 +471,7 @@ echo "=========================================================="
 ### 客户端导入方法：
 1. 打开 **Clash Verge**，点击左侧 **“订阅 (Profiles)”**。
 2. 将打印出来的链接粘贴进上方输入框。
-3. 点击 **“导入 (Import)”**。卡片将自动以设定的节点名称命名，并显示带有真实消耗的流量进度条。
+3. 点击 **“导入 (Import)”**。卡片将自动以设定的节点名称命名，并精确显示带有两位小数的真实流量进度条。
 
 ---
 
