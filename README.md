@@ -103,7 +103,8 @@
 
 在实例详情页的右侧操作区，点击 **“控制台”** 按钮进入网页终端：
 
-![点击控制台进入Web终端](images/09-web-console.png)
+![点击控制台进入Web终端]<img width="685" height="1099" alt="图片" src="https://github.com/user-attachments/assets/c1ab8281-ca61-4fc4-99b2-253d83deb611" />
+
 
 进入黑色终端窗口后，按以下步骤依次执行命令：
 
