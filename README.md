@@ -3,7 +3,7 @@
 > **适用场景**：独角鲸云、碳云、微基主机等所有 NAT VPS 商家及普通独立 IP VPS。  
 > **支持架构**：x86_64 (amd64) / aarch64 (arm64)，系统推荐 Debian 11/12/13 或 Ubuntu。  
 > **核心组合**：官方静态 `sing-box` (VLESS-REALITY-Vision) + 原生 `Perl 5` 极轻量动态流量订阅。  
-> **设计特点**：步骤清晰、参数高度可自定义、支持内外端口分离映射、完全免疫浏览器翻译插件对 URL 的篡改。
+> **设计特点**：步骤清晰、参数高度可自定义、支持内外端口分离映射、全面采用 Base64 编码传输 URL 杜绝任何翻译插件篡改。
 
 ---
 
@@ -97,31 +97,26 @@
 
 ### 步骤一：安装核心基础工具与 sing-box 校验
 
-整段复制并粘贴执行以下命令。该脚本加入了 `DEBIAN_FRONTEND=noninteractive` 防止 Debian 容器终端卡在 `debconf` 弹窗，且对下载 URL 做了字符隔离，彻底免疫翻译插件改写括号：
+整段复制并粘贴执行以下命令。该脚本加入了 `DEBIAN_FRONTEND=noninteractive` 防止 Debian 容器终端卡在 `debconf` 弹窗，且对下载 URL 全面采用 Base64 编码，彻底免疫浏览器翻译插件对 URL 的加括号破坏：
 
 ```bash
 export DEBIAN_FRONTEND=noninteractive
 apt update -y && apt install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" curl perl openssl procps jq bc
 
-# 自动匹配系统架构
 ARCH_RAW=$(uname -m)
 case "$ARCH_RAW" in
     x86_64)  ARCH="amd64" ;;
     aarch64) ARCH="arm64" ;;
-    armv7*)  ARCH="armv7" ;;
-    *) echo "未受支持的架构: $ARCH_RAW" && exit 1 ;;
+    *) echo "不支持的架构: $ARCH_RAW" && exit 1 ;;
 esac
 
-SB_VER="1.11.4"
 TARGET="/usr/local/bin/sing-box"
-
-# 隔离拼装下载地址，避免浏览器翻译插件包裹 [url](url) 语法
-H="h""t""t""p""s"":""/""/"
-URL1="${H}ghfast.top/${H}[github.com/SagerNet/sing-box/releases/download/v$](https://github.com/SagerNet/sing-box/releases/download/v$){SB_VER}/sing-box-${SB_VER}-linux-${ARCH}.tar.gz"
-URL2="${H}[github.com/SagerNet/sing-box/releases/download/v$](https://github.com/SagerNet/sing-box/releases/download/v$){SB_VER}/sing-box-${SB_VER}-linux-${ARCH}.tar.gz"
-
 rm -f /tmp/sb.tar.gz
-curl -fsSL -o /tmp/sb.tar.gz "$URL1" || curl -fsSL -o /tmp/sb.tar.gz "$URL2"
+
+DL_URL=$(echo "aHR0cHM6Ly9naGZhc3QudG9wL2h0dHBzOi8vZ2l0aHViLmNvbS9TYWdlck5ldC9zaW5nLWJveC9yZWxlYXNlcy9kb3dubG9hZC92MS4xMS40L3NpbmctYm94LTEuMTEuNC1saW51eC0ke0FSQ0h9LnRhci5neg==" | base64 -d | sed "s/\${ARCH}/$ARCH/g")
+BACK_URL=$(echo "aHR0cHM6Ly9naXRodWIuY29tL1NhZ2VyTmV0L3NpbmctYm94L3JlbGVhc2VzL2Rvd25sb2FkL3YxLjExLjQvc2luZy1ib3gtMS4xMS40LWxpbnV4LSR7QVJDSH0udGFyLmd6" | base64 -d | sed "s/\${ARCH}/$ARCH/g")
+
+curl -fsSL -o /tmp/sb.tar.gz "$DL_URL" || curl -fsSL -o /tmp/sb.tar.gz "$BACK_URL"
 
 if [ -f /tmp/sb.tar.gz ]; then
     tar -zxvf /tmp/sb.tar.gz -C /tmp/
@@ -152,7 +147,7 @@ cat <<'SH_EOF' > /root/setup.sh
 clear
 mkdir -p /opt/sing-box/ui /opt/sing-box/backup
 
-# 拆分协议头，规避浏览器翻译插件改写超链接
+# 拆分协议头探测 IP，规避浏览器翻译插件改写超链接
 P="h""t""t""p"
 DETECT_IP=$(curl -s4m 3 "$P://ip.sb" || curl -s4m 3 "$P://ifconfig.me" || curl -s4m 3 "$P://api.ipify.org" || echo "")
 
@@ -205,7 +200,7 @@ RAND_TOKEN=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 16)
 read -p "9. 订阅安全 Token [直接回车随机: ${RAND_TOKEN}]: " INPUT_TOKEN
 SUB_TOKEN=${INPUT_TOKEN:-$RAND_TOKEN}
 
-# 现场通过已安装的 sing-box 严格生成密钥对与 UUID
+# 现场严格生成密钥对与 UUID
 UUID=$(/usr/local/bin/sing-box generate uuid | tr -d '\r\n ')
 KEYPAIR=$(/usr/local/bin/sing-box generate reality-keypair)
 PRIVATE_KEY=$(echo "$KEYPAIR" | grep "PrivateKey" | awk '{print $2}' | tr -d '\r\n ')
@@ -510,7 +505,7 @@ echo "=========================================================="
 1. 复制终端输出的完整 `http://...` 链接。
 2. 打开 **Clash Verge**，进入左侧 **“订阅 (Profiles)”**。
 3. 粘贴至输入框，点击 **“导入 (Import)”**。
-4. 卡片会以设置的节点名命名，并实时显示已用流量与到期时间[cite: 8]。
+4. 卡片会以设置的节点名命名，并实时显示已用流量与到期时间。
 5. 切换到 **“代理 (Proxies)”** 界面点击闪电图标测速，节点将直接返回延迟并可正常代理上网。
 
 ---
