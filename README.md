@@ -3,7 +3,7 @@
 > **适用场景**：独角鲸云、碳云、微基主机等所有 NAT VPS 商家及普通独立 IP VPS。  
 > **支持架构**：x86_64 (amd64) / aarch64 (arm64)，系统推荐 Debian 11/12/13 或 Ubuntu。  
 > **核心组合**：官方静态 `sing-box` (VLESS-REALITY-Vision) + 原生 `Perl 5` 极轻量动态流量订阅。  
-> **设计特点**：图文步骤完整、参数逐项交互可控、支持内外端口分离映射、完全免疫浏览器翻译插件对 URL 的篡改，且代码块末尾均自带回车符。
+> **设计特点**：图文步骤完整、参数逐项交互可控、支持内外端口分离映射、完全免疫浏览器翻译插件对 URL 的篡改，代码块全部采用 `{ }` 复合块封装以防止终端卡输入。
 
 ---
 
@@ -23,7 +23,7 @@
 
 ## 0. 什么是 NAT 小鸡？（通俗科普）
 
-* **独立 IP VPS（普通服务器）**：类似于独栋房屋，拥有独立的门牌号（独立公网 IP），所有端口都可以对外开放监听。
+* **独立 IP VPS（普通服务器）**：类似于独门独栋房屋，拥有独立的门牌号（独立公网 IP），所有端口都可以对外开放监听。
 * **NAT 小鸡（共享型服务器）**：类似于合租公寓。
   * **共享大门**：整台物理母机上的所有用户共享同一个公网 IPv4。
   * **端口转发**：外网无法通过任意端口直接访问小鸡，必须通过母机路由器进行端口映射。商家会分配几个专属的外部端口（例如 `23456`、`34567`）。外网通过访问 `公网IP:外部端口`，路由器才会准确把数据包转发到小鸡内部。
@@ -97,9 +97,10 @@
 
 ### 步骤一：安装基础工具与 sing-box 校验
 
-整段复制并粘贴执行。脚本内置非交互式参数避免 Debian 容器卡死，下载链接采用 Base64 编码彻底防止翻译插件改写超链接：
+整段复制并粘贴执行。命令采用 `{ ... }` 语法闭合，末尾带闭合大括号，粘贴后自动触发全量执行，无需手动回车：
 
 ```bash
+{
 export DEBIAN_FRONTEND=noninteractive
 apt update -y && apt install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" curl perl openssl procps jq bc
 
@@ -130,16 +131,17 @@ else
     echo "[ERROR] Download failed! Please check your network."
     exit 1
 fi
-
+}
 ```
 
 ---
 
 ### 步骤二：参数交互引导与变量持久化
 
-整段复制并粘贴执行。终端会依次弹出提示，遇到每一项**填入对应参数并回车**（若直接回车则采用括号内的默认值）：
+整段复制并粘贴执行。自动进入问答环节，遇到每一项**填入对应参数并按回车**（直接按回车则采用括号内的默认值）：
 
 ```bash
+{
 cat <<'SH_EOF' > /root/setup.sh
 #!/bin/bash
 clear
@@ -171,7 +173,7 @@ INT_SUB_PORT=${INT_SUB_PORT:-$EXT_SUB_PORT}
 read -p "4. 客户端显示的卡片名称 [默认: 日本自建（400g）]: " INPUT_NAME
 NODE_NAME=${INPUT_NAME:-"日本自建（400g）"}
 
-read -p "5. 总流量额度(GB) [纯数字, 默认: 400]: " INPUT_TOTAL
+read -p "5. 总流量额度(GB) [看面板填纯数字, 默认: 400]: " INPUT_TOTAL
 TRAFFIC_GB=${INPUT_TOTAL:-400}
 
 read -p "6. 已用过的流量底数(GB) [支持两位小数，新机直接回车填 0]: " INPUT_USED
@@ -226,16 +228,17 @@ echo "[OK] Environment variables saved to /opt/sing-box/my_env.sh"
 SH_EOF
 
 bash /root/setup.sh
-
+}
 ```
 
 ---
 
 ### 步骤三：写入核心服务配置并启动
 
-整段复制并粘贴执行。代码会自动引用步骤二生成的环境变量，原子级写入服务端与客户端文件，并启动系统服务：
+整段复制并粘贴执行。代码会自动引用步骤二生成的环境变量，原子级写入服务端与客户端文件，并启动系统服务（自动触发运行）：
 
 ```bash
+{
 source /opt/sing-box/my_env.sh
 
 # 1. 写入服务端 sing-box 配置
@@ -444,7 +447,7 @@ systemctl restart sing-box clash-sub
 
 echo "[OK] Deployment complete! Listening ports:"
 ss -tulpn | grep -E "(${INT_NODE_PORT}|${INT_SUB_PORT})"
-
+}
 ```
 
 ---
@@ -454,12 +457,13 @@ ss -tulpn | grep -E "(${INT_NODE_PORT}|${INT_SUB_PORT})"
 运行以下命令，打印客户端专属订阅链接：
 
 ```bash
+{
 source /opt/sing-box/my_env.sh
 echo "=========================================================="
 echo "客户端专属订阅导入链接："
 echo "http://${SERVER_IP}:${EXT_SUB_PORT}/token=${SUB_TOKEN}&name=${NODE_NAME}.yaml"
 echo "=========================================================="
-
+}
 ```
 
 ### Clash Verge 导入步骤：
