@@ -25,7 +25,7 @@
 * **独立 IP VPS（普通服务器）**：类似于独门独栋别墅，有独立的门牌号（独立公网 IP），所有端口都可以对外开放监听。
 * **NAT 小鸡（共享型服务器）**：类似于合租大型公寓楼。
   * **共享大门**：整台物理母机上的所有合租用户共享同一个公网 IPv4。
-  * **端口转发进屋**：外网无法通过任意端口找到你的小鸡，必须通过商家路由器进行“端口映射”。商家会分配给你的房间几个专属的外部端口（例如分配 `59688`、`59689`）。外网通过访问 `公网IP:外部端口`，路由器才会准确把流量转发给你的小鸡内部。
+  * **端口转发进屋**：外网无法通过任意端口找到你的小鸡，必须通过商家路由器进行“端口映射”。商家会分配给你的房间几个专属的外部端口（例如分配 `55555`、`55556`）。外网通过访问 `公网IP:外部端口`，路由器才会准确把流量转发给你的小鸡内部。
   * **优势**：价格极其亲民、配置精巧、性价比高。
 
 ---
@@ -85,15 +85,15 @@
 ![端口转发规则列表]<img width="1288" height="441" alt="图片" src="https://github.com/user-attachments/assets/c364fe94-c038-4c5d-8936-6629a70d8c75" />
 
 
-请依次添加两条规则：
+请依次添加两条规则（建议内外端口保持一致，例如分配 `55555` 和 `55556`）：
 * **规则 1（给节点连接使用）**：
   * **协议**：`TCP`
-  * **内部端口**：`59689`
-  * **外部端口**：填入系统分配或自选的外部端口（例如 `59689`）
+  * **内部端口**：`55555`
+  * **外部端口**：填入系统分配或自选的外部端口（例如 `55555`）
 * **规则 2（给订阅下发使用）**：
   * **协议**：`TCP`
-  * **内部端口**：`59688`
-  * **外部端口**：填入系统分配或自选的外部端口（例如 `59688`）
+  * **内部端口**：`55556`
+  * **外部端口**：填入系统分配或自选的外部端口（例如 `55556`）
 
 > **记下这两个外部端口**：在后续的终端交互中会要求输入。
 
@@ -117,7 +117,7 @@ apt update && apt install -y curl perl openssl jq bc
 if ! command -v sing-box &> /dev/null; then
     ARCH=$(dpkg --print-architecture)
     URL="[https://github.com/SagerNet/sing-box/releases/download/v1.11.4/sing-box-1.11.4-linux-$](https://github.com/SagerNet/sing-box/releases/download/v1.11.4/sing-box-1.11.4-linux-$){ARCH}.tar.gz"
-    curl -fsSL -o /tmp/sb.tar.gz "$URL"
+    curl -fsSL -o /tmp/sb.tar.gz "$URL" || curl -fsSL -o /tmp/sb.tar.gz "[https://ghfast.top/$URL](https://ghfast.top/$URL)"
     tar -zxvf /tmp/sb.tar.gz -C /tmp/
     mv /tmp/sing-box-*/sing-box /usr/local/bin/sing-box
     chmod +x /usr/local/bin/sing-box
@@ -140,8 +140,8 @@ cat <<'SH_EOF' > /root/setup.sh
 clear
 mkdir -p /opt/sing-box/ui /opt/sing-box/backup
 
-# 采用三大主流纯文本接口轮询探测，超高成功率
-DETECT_IP=$(curl -s4m 3 http://ip.sb || curl -s4m 3 http://ifconfig.me || curl -s4m 3 http://api.ipify.org || echo "")
+# 纯文本探测 IP，避免任何误转超链接报错
+DETECT_IP=$(curl -s4m 3 [http://ip.sb](http://ip.sb) || curl -s4m 3 [http://ifconfig.me](http://ifconfig.me) || curl -s4m 3 [http://api.ipify.org](http://api.ipify.org) || echo "")
 
 echo "========================================================"
 echo "          独角鲸云 NAT VPS 智能参数配置引导            "
@@ -163,11 +163,11 @@ NODE_NAME=${INPUT_NAME:-"日本自建（400g）"}
 read -p "5. 总流量额度(GB) [看面板填纯数字, 默认: 400]: " INPUT_GB
 TRAFFIC_GB=${INPUT_GB:-400}
 
-# === 基础已用流量垫底（精确支持两位小数） ===
+# === 基础已用流量垫底（精确支持两位小数，如 12.35、0.58） ===
 read -p "6. 之前已用过的流量(GB) [支持两位小数，新机直接回车填 0]: " INPUT_USED_GB
 USED_GB=${INPUT_USED_GB:-0}
 
-# === 面板到期时间 ===
+# === 直接照抄后台到期时间 ===
 read -p "7. 面板显示的到期时间 [格式示例: 2026-10-17 22:59:42]: " INPUT_DATE
 if [ -n "$INPUT_DATE" ]; then
     EXPIRE_TIME=$(date -d "$INPUT_DATE" +%s 2>/dev/null || echo "$(( $(date +%s) + 30 * 86400 ))")
@@ -184,16 +184,18 @@ RAND_TOKEN=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 16)
 read -p "9. 订阅安全 Token [默认随机: ${RAND_TOKEN}]: " INPUT_TOKEN
 SUB_TOKEN=${INPUT_TOKEN:-$RAND_TOKEN}
 
-UUID=$(sing-box generate uuid)
+UUID=$(sing-box generate uuid | tr -d '\r\n')
 KEYPAIR=$(sing-box generate reality-keypair)
-PRIVATE_KEY=$(echo "$KEYPAIR" | grep "PrivateKey" | awk '{print $2}')
-PUBLIC_KEY=$(echo "$KEYPAIR" | grep "PublicKey" | awk '{print $2}')
-SHORT_ID=$(openssl rand -hex 8)
+PRIVATE_KEY=$(echo "$KEYPAIR" | grep "PrivateKey" | awk '{print $2}' | tr -d '\r\n')
+PUBLIC_KEY=$(echo "$KEYPAIR" | grep "PublicKey" | awk '{print $2}' | tr -d '\r\n')
+SHORT_ID=$(openssl rand -hex 8 | tr -d '\r\n')
 
 TOTAL_BYTES=$(( TRAFFIC_GB * 1024 * 1024 * 1024 ))
+
+# 使用 awk 精确将两位小数 GB 换算为精确字节整数
 BASE_USED_BYTES=$(awk "BEGIN {printf \"%.0f\", ${USED_GB} * 1024 * 1024 * 1024}")
 
-cat <<EOF > /opt/sing-box/my_env.sh
+cat <<EOF> /opt/sing-box/my_env.sh
 export SERVER_IP="${SERVER_IP}"
 export NODE_PORT="${NODE_PORT}"
 export SUB_PORT="${SUB_PORT}"
@@ -228,7 +230,7 @@ bash /root/setup.sh
 ```bash
 source /opt/sing-box/my_env.sh
 
-# 1. 写入 sing-box 节点配置
+# 1. 写入 sing-box 节点配置（使用 0.0.0.0 避免容器缺 IPv6 导致报错）
 cat <<EOF> /opt/sing-box/config.json
 {
   "log": { "level": "warn" },
@@ -236,7 +238,7 @@ cat <<EOF> /opt/sing-box/config.json
     {
       "type": "vless",
       "tag": "vless-in",
-      "listen": "::",
+      "listen": "0.0.0.0",
       "listen_port": ${NODE_PORT},
       "users": [{ "uuid": "${UUID}", "flow": "xtls-rprx-vision" }],
       "tls": {
@@ -277,7 +279,7 @@ systemctl daemon-reload
 systemctl enable --now sing-box
 systemctl restart sing-box
 
-# 3. 写入 LoyalSoldier 精细分流客户端 YAML
+# 3. 写入 LoyalSoldier 精细分流客户端 YAML（修复标准列表缩进与链接字符）
 cat <<EOF> /opt/sing-box/ui/index.html
 port: 7890
 socks-port: 7891
@@ -320,35 +322,102 @@ proxies:
 proxy-groups:
   - name: "国外流量"
     type: select
-    proxies: ["${NODE_NAME}", DIRECT]
+    proxies:
+      - "${NODE_NAME}"
+      - DIRECT
   - name: "国外媒体"
     type: select
-    proxies: ["${NODE_NAME}", "国外流量"]
+    proxies:
+      - "${NODE_NAME}"
+      - "国外流量"
   - name: "AI平台"
     type: select
-    proxies: ["${NODE_NAME}", "国外流量"]
+    proxies:
+      - "${NODE_NAME}"
+      - "国外流量"
   - name: "微软服务"
     type: select
-    proxies: [DIRECT, "${NODE_NAME}"]
+    proxies:
+      - DIRECT
+      - "${NODE_NAME}"
   - name: "苹果服务"
     type: select
-    proxies: [DIRECT, "${NODE_NAME}"]
+    proxies:
+      - DIRECT
+      - "${NODE_NAME}"
   - name: "漏网之鱼"
     type: select
-    proxies: ["国外流量", DIRECT]
+    proxies:
+      - "国外流量"
+      - DIRECT
 
 rule-providers:
-  reject: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/reject.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/reject.txt)", path: ./ruleset/reject.yaml, interval: 86400 }
-  icloud: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/icloud.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/icloud.txt)", path: ./ruleset/icloud.yaml, interval: 86400 }
-  apple: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/apple.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/apple.txt)", path: ./ruleset/apple.yaml, interval: 86400 }
-  google: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/google.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/google.txt)", path: ./ruleset/google.yaml, interval: 86400 }
-  proxy: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/proxy.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/proxy.txt)", path: ./ruleset/proxy.yaml, interval: 86400 }
-  direct: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/direct.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/direct.txt)", path: ./ruleset/direct.yaml, interval: 86400 }
-  gfw: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/gfw.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/gfw.txt)", path: ./ruleset/gfw.yaml, interval: 86400 }
-  tld-not-cn: { type: http, behavior: domain, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/tld-not-cn.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/tld-not-cn.txt)", path: ./ruleset/tld-not-cn.yaml, interval: 86400 }
-  telegramcidr: { type: http, behavior: ipcidr, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/telegramcidr.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/telegramcidr.txt)", path: ./ruleset/telegramcidr.yaml, interval: 86400 }
-  cncidr: { type: http, behavior: ipcidr, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/cncidr.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/cncidr.txt)", path: ./ruleset/cncidr.yaml, interval: 86400 }
-  lancidr: { type: http, behavior: ipcidr, url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt)", path: ./ruleset/lancidr.yaml, interval: 86400 }
+  reject:
+    type: http
+    behavior: domain
+    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/reject.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/reject.txt)"
+    path: ./ruleset/reject.yaml
+    interval: 86400
+  icloud:
+    type: http
+    behavior: domain
+    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/icloud.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/icloud.txt)"
+    path: ./ruleset/icloud.yaml
+    interval: 86400
+  apple:
+    type: http
+    behavior: domain
+    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/apple.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/apple.txt)"
+    path: ./ruleset/apple.yaml
+    interval: 86400
+  google:
+    type: http
+    behavior: domain
+    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/google.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/google.txt)"
+    path: ./ruleset/google.yaml
+    interval: 86400
+  proxy:
+    type: http
+    behavior: domain
+    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/proxy.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/proxy.txt)"
+    path: ./ruleset/proxy.yaml
+    interval: 86400
+  direct:
+    type: http
+    behavior: domain
+    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/direct.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/direct.txt)"
+    path: ./ruleset/direct.yaml
+    interval: 86400
+  gfw:
+    type: http
+    behavior: domain
+    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/gfw.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/gfw.txt)"
+    path: ./ruleset/gfw.yaml
+    interval: 86400
+  tld-not-cn:
+    type: http
+    behavior: domain
+    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/tld-not-cn.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/tld-not-cn.txt)"
+    path: ./ruleset/tld-not-cn.yaml
+    interval: 86400
+  telegramcidr:
+    type: http
+    behavior: ipcidr
+    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/telegramcidr.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/telegramcidr.txt)"
+    path: ./ruleset/telegramcidr.yaml
+    interval: 86400
+  cncidr:
+    type: http
+    behavior: ipcidr
+    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/cncidr.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/cncidr.txt)"
+    path: ./ruleset/cncidr.yaml
+    interval: 86400
+  lancidr:
+    type: http
+    behavior: ipcidr
+    url: "[https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt](https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/lancidr.txt)"
+    path: ./ruleset/lancidr.yaml
+    interval: 86400
 
 rules:
   - RULE-SET,lancidr,DIRECT,no-resolve
@@ -375,7 +444,7 @@ rules:
   - MATCH,漏网之鱼
 EOF
 
-# 4. 写入支持基础流量垫底与高精度小数折算的 Perl 动态流量订阅服务端
+# 4. 写入支持基础流量垫底、两位小数与 RFC 5987 标准中文字符编码的 Perl 服务
 cat <<EOF> /opt/sing-box/sub.pl
 use strict;
 use warnings;
@@ -384,6 +453,13 @@ use IO::Socket::INET;
 my \$SECRET_TOKEN = "${SUB_TOKEN}";
 my \$IFACE = "${NET_IFACE}";
 my \$BASE_USED = ${BASE_USED_BYTES};
+my \$PORT = ${SUB_PORT};
+my \$NODE_NAME = "${NODE_NAME}";
+my \$TOTAL_BYTES = ${TOTAL_BYTES};
+my \$EXPIRE_TIME = ${EXPIRE_TIME};
+
+my \$NAME_ENCODED = \$NODE_NAME;
+\$NAME_ENCODED =~ s/([^a-zA-Z0-9_.~-])/sprintf("%%%02X", ord(\$1))/eg;
 
 sub get_network_traffic {
     my (\$rx_curr, \$tx_curr) = (0, 0);
@@ -397,7 +473,6 @@ sub get_network_traffic {
         }
         close \$fh;
     }
-    # 将网卡当前产生的字节数与历史底数精确合并
     my \$total_rx = \$rx_curr + \$BASE_USED;
     return (\$total_rx, \$tx_curr);
 }
@@ -410,11 +485,12 @@ close \$fh;
 my \$len = length(\$body);
 
 my \$server = IO::Socket::INET->new(
-    LocalPort => ${SUB_PORT},
+    LocalAddr => '0.0.0.0',
+    LocalPort => \$PORT,
     Proto     => 'tcp',
     Listen    => 20,
     ReuseAddr => 1
-) or die "Cannot bind to port ${SUB_PORT}: \$!";
+) or die "Cannot bind to port \$PORT: \$!";
 
 while (my \$client = \$server->accept()) {
     my \$req_line = <\$client> || "";
@@ -422,9 +498,9 @@ while (my \$client = \$server->accept()) {
         my (\$rx, \$tx) = get_network_traffic();
         my \$resp = "HTTP/1.1 200 OK\\r\\n" .
                    "Content-Type: text/yaml; charset=utf-8\\r\\n" .
-                   "Content-Disposition: attachment; filename=\\"${NODE_NAME}.yaml\\"; filename*=UTF-8''${NODE_NAME}.yaml\\r\\n" .
+                   "Content-Disposition: attachment; filename=\\"config.yaml\\"; filename*=UTF-8''\${NAME_ENCODED}.yaml\\r\\n" .
                    "Content-Length: \$len\\r\\n" .
-                   "Subscription-Userinfo: upload=\$tx; download=\$rx; total=${TOTAL_BYTES}; expire=${EXPIRE_TIME}\\r\\n" .
+                   "Subscription-Userinfo: upload=\$tx; download=\$rx; total=\${TOTAL_BYTES}; expire=\${EXPIRE_TIME}\\r\\n" .
                    "Connection: close\\r\\n\\r\\n" .
                    \$body;
         print \$client \$resp;
@@ -451,7 +527,7 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now clash-sub
-systemctl restart clash-sub
+systemctl restart sing-box clash-sub
 ```
 
 ---
@@ -463,7 +539,7 @@ systemctl restart clash-sub
 ```bash
 source /opt/sing-box/my_env.sh
 
-# 检查端口监听
+# 检查端口监听（确保两个端口都处于 LISTEN 状态）
 ss -tulpn | grep -E "(${NODE_PORT}|${SUB_PORT})"
 
 echo ""
@@ -482,7 +558,7 @@ echo "=========================================================="
 
 ## 5. 第五部分：核心防阻断技巧（开着梯子也能秒级更新订阅）
 
-**小白常踩的坑**：很多用户在电脑开着其他梯子/系统代理时，点击订阅卡片的“更新”，会报错提示 `failed to fetch remote profile`。这是因为中间代理屏蔽了非标高位端口（如 `59688`）。
+**小白常踩的坑**：很多用户在电脑开着其他梯子/系统代理时，点击订阅卡片的“更新”，会报错提示 `failed to fetch remote profile`。这是因为中间代理屏蔽了非标高位端口（如 `55556`）。
 
 ### 一劳永逸解法（无需每次手动开关梯子）：
 1. 在 Clash Verge 中打开你平时主力使用的那个订阅卡片，右键点击选择 **“编辑扩展配置 (Edit Rules / Script)”**。
