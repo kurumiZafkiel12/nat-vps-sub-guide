@@ -112,17 +112,16 @@
 直接复制并粘贴执行以下命令，安装依赖工具及官方静态 `sing-box`：
 
 ```bash
-apt update && apt install -y curl perl openssl
+apt update && apt install -y curl perl openssl jq
 
 if ! command -v sing-box &> /dev/null; then
-    echo "正在自动下载官方静态 sing-box..."
-    ARCH=$(uname -m)
-    [ "$ARCH" = "x86_64" ] && SB_ARCH="amd64" || SB_ARCH="arm64"
-    curl -Lo /usr/local/bin/sing-box [https://github.com/SagerNet/sing-box/releases/download/v1.11.4/sing-box-1.11.4-linux-$](https://github.com/SagerNet/sing-box/releases/download/v1.11.4/sing-box-1.11.4-linux-$){SB_ARCH}.tar.gz
-    tar -zxvf /usr/local/bin/sing-box -C /tmp/
+    ARCH=$(dpkg --print-architecture)
+    URL="https://github.com/SagerNet/sing-box/releases/download/v1.11.4/sing-box-1.11.4-linux-${ARCH}.tar.gz"
+    curl -fsSL -o /tmp/sb.tar.gz "$URL"
+    tar -zxvf /tmp/sb.tar.gz -C /tmp/
     mv /tmp/sing-box-*/sing-box /usr/local/bin/sing-box
     chmod +x /usr/local/bin/sing-box
-    rm -rf /tmp/sing-box*
+    rm -rf /tmp/sb* /tmp/sing-box*
 fi
 
 sing-box version
@@ -136,40 +135,34 @@ perl -v | head -n 2
 整段复制并粘贴到控制台回车。脚本会自动探测公网 IP 与真实网卡名、自动生成 UUID、Reality 密钥对与防扫 Token。遇到需要确认的项，**终端会逐条停下来让你输入**（若直接按回车则采用默认值）：
 
 ```bash
+cat <<'SH_EOF' > /root/setup.sh
+#!/bin/bash
+clear
 mkdir -p /opt/sing-box/ui /opt/sing-box/backup
 
-# 1. 自动探测公网 IPv4
-DETECT_IP=$(curl -s4m 5 [https://api.ipify.org](https://api.ipify.org) || curl -s4m 5 [https://icanhazip.com](https://icanhazip.com) || echo "")
+DETECT_IP=$(curl -s4m 5 https://api.ipify.org || echo "")
 echo "--------------------------------------------------------"
-read -p "1. 确认公网 IP [默认探测为: ${DETECT_IP}]: " INPUT_IP
+read -p "1. 确认公网 IP [默认: ${DETECT_IP}]: " INPUT_IP
 SERVER_IP=${INPUT_IP:-$DETECT_IP}
 
-# 2. 交互输入节点与订阅端口
-read -p "2. 请输入独角鲸云分配给节点的外部端口 (VLESS, 如 59689): " NODE_PORT
-read -p "3. 请输入独角鲸云分配给订阅的外部端口 (HTTP, 如 59688): " SUB_PORT
-
-# 3. 交互输入卡片名称与额度
-read -p "4. 请输入客户端卡片与节点名称 [默认: 日本自建（400g）]: " INPUT_NAME
+read -p "2. 独角鲸云分配给节点的外部端口 (VLESS): " NODE_PORT
+read -p "3. 独角鲸云分配给订阅的外部端口 (HTTP): " SUB_PORT
+read -p "4. 客户端显示的卡片名称 [默认: 日本自建（400g）]: " INPUT_NAME
 NODE_NAME=${INPUT_NAME:-"日本自建（400g）"}
-
-read -p "5. 请输入总流量额度 (单位GB，纯数字) [默认: 400]: " INPUT_GB
+read -p "5. 流量额度(GB) [默认: 400]: " INPUT_GB
 TRAFFIC_GB=${INPUT_GB:-400}
-
-read -p "6. 请输入到期天数 (多少天后过期) [默认: 30]: " INPUT_DAYS
+read -p "6. 到期天数 [默认: 30]: " INPUT_DAYS
 EXPIRE_DAYS=${INPUT_DAYS:-30}
 
-# 4. 自动探测真实物理网卡 (避开 lo)
 DETECT_IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '{print $5}' | head -n1)
 DETECT_IFACE=${DETECT_IFACE:-"eth0"}
-read -p "7. 确认流量统计网卡名 [默认探测为: ${DETECT_IFACE}]: " INPUT_IFACE
+read -p "7. 流量网卡名 [默认: ${DETECT_IFACE}]: " INPUT_IFACE
 NET_IFACE=${INPUT_IFACE:-$DETECT_IFACE}
 
-# 5. 自动生成防扫描随机 Token
 RAND_TOKEN=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 16)
-read -p "8. 确认订阅安全 Token [默认随机生成: ${RAND_TOKEN}]: " INPUT_TOKEN
+read -p "8. 订阅安全 Token [默认: ${RAND_TOKEN}]: " INPUT_TOKEN
 SUB_TOKEN=${INPUT_TOKEN:-$RAND_TOKEN}
 
-# 6. 自动生成安全密钥对与字节换算
 UUID=$(sing-box generate uuid)
 KEYPAIR=$(sing-box generate reality-keypair)
 PRIVATE_KEY=$(echo "$KEYPAIR" | grep "PrivateKey" | awk '{print $2}')
@@ -179,8 +172,7 @@ SHORT_ID=$(openssl rand -hex 8)
 TOTAL_BYTES=$(( TRAFFIC_GB * 1024 * 1024 * 1024 ))
 EXPIRE_TIME=$(( $(date +%s) + EXPIRE_DAYS * 86400 ))
 
-# 7. 持久化存储到 /opt/sing-box/my_env.sh 方便后续调用
-cat <<EOF> /opt/sing-box/my_env.sh
+cat <<EOF > /opt/sing-box/my_env.sh
 export SERVER_IP="${SERVER_IP}"
 export NODE_PORT="${NODE_PORT}"
 export SUB_PORT="${SUB_PORT}"
@@ -196,10 +188,11 @@ export TOTAL_BYTES="${TOTAL_BYTES}"
 export EXPIRE_TIME="${EXPIRE_TIME}"
 EOF
 
-source /opt/sing-box/my_env.sh
-
 echo "--------------------------------------------------------"
-echo "[+] 变量自动创建成功，已持久化保存到 /opt/sing-box/my_env.sh！"
+echo "[+] 变量创建完毕，已保存到 /opt/sing-box/my_env.sh！"
+SH_EOF
+
+bash /root/setup.sh
 ```
 
 ---
